@@ -1,0 +1,28 @@
+{
+    "name": "cloud-backend",
+    "version": "1.0.0",
+    "description": "",
+    "main": "src/index.ts",
+    "scripts": {
+        "dev": "bun run --watch src/index.ts",
+        "build": "bun build src/index.ts --outdir dist",
+        "start": "bun run dist/index.js",
+        "test": "bun test",
+        "db:push": "drizzle-kit push",
+        "db:studio": "drizzle-kit studio"
+    },
+    "dependencies": {
+        "@elysiajs/cors": "latest",
+        "@elysiajs/cron": "^1.4.1",
+        "@elysiajs/jwt": "latest",
+        "@elysiajs/static": "^1.4.7",
+        "@elysiajs/swagger": "latest",
+        "drizzle-orm": "^0.30.10",
+        "elysia": "latest",
+        "postgres": "^3.4.4"
+    },
+    "devDependencies": {
+        "bun-types": "latest",
+        "drizzle-kit": "^0.21.2"
+    }
+}
