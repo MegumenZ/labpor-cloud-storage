@@ -14,7 +14,6 @@ import { unlink } from "fs/promises";
 import { getAllDescendants } from "./files";
 
 const app = new Elysia({
-    bodyLimit: 1024 * 1024 * 1024 * 5, // 5GB in bytes
     serve: {
         maxRequestBodySize: 1024 * 1024 * 1024 * 5 // 5GB in bytes
     }
