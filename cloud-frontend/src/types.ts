@@ -8,6 +8,7 @@ export interface FileItem {
   parentId: string | null;
   previewUrl?: string | null;
   isDeleted?: boolean;
+  isFavorite?: boolean;
 }
 
 export interface User {

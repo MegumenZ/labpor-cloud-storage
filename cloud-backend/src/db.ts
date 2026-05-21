@@ -14,9 +14,10 @@ import { relations } from "drizzle-orm"; // Tambah import relations
 import postgres from "postgres";
 
 // --- KONEKSI DATABASE ---
-// Pastikan password sesuai dengan yang kamu pakai tadi
-const connectionString =
-  process.env.DATABASE_URL || "postgres://postgres:123456789@localhost:5432/skripsi_cloud";
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error("CRITICAL: DATABASE_URL environment variable is missing! Server cannot start without database connection credentials.");
+}
 const client = postgres(connectionString);
 export const db = drizzle(client);
 
@@ -55,6 +56,9 @@ export const files = pgTable("files", {
   // Soft Delete
   isDeleted: boolean("is_deleted").default(false),
   deletedAt: timestamp("deleted_at"),
+
+  // Favorites
+  isFavorite: boolean("is_favorite").default(false),
 });
 
 // --- 3. DEFINISI RELASI (Agar Drizzle pintar saat query) ---

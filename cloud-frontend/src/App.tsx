@@ -32,7 +32,7 @@ function App() {
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [folderStack, setFolderStack] = useState<{ id: string; name: string }[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<"files" | "trash">("files");
+  const [viewMode, setViewMode] = useState<"files" | "trash" | "recent" | "favorites">("files");
 
   // Modal States
   const [fileToDelete, setFileToDelete] = useState<string | null>(null);
@@ -88,11 +88,17 @@ function App() {
     setLoading(true);
     try {
       const params: Record<string, string> = {};
+      if (viewMode === "trash") {
+        params.trash = "true";
+      } else if (viewMode === "favorites") {
+        params.favorite = "true";
+      } else if (viewMode === "recent") {
+        params.recent = "true";
+      }
+
       if (searchQuery) {
         params.search = searchQuery;
-      } else if (viewMode === "trash") {
-        params.trash = "true";
-      } else if (currentFolderId) {
+      } else if (viewMode !== "trash" && viewMode !== "favorites" && viewMode !== "recent" && currentFolderId) {
         params.folderId = currentFolderId;
       }
 
@@ -104,6 +110,11 @@ function App() {
       setLoading(false);
     }
   }, [isAuthenticated, currentFolderId, searchQuery, viewMode]);
+
+  // Reset search query when changing folders or view modes
+  useEffect(() => {
+    setSearchQuery("");
+  }, [currentFolderId, viewMode]);
 
   useEffect(() => {
     if (isAuthenticated) fetchFiles();
@@ -194,6 +205,31 @@ function App() {
     if (name && name !== f.name) {
       await api.put(`/files/${f.id}/rename`, { newName: name });
       fetchFiles();
+    }
+  };
+
+  const handleToggleFavorite = async (file: FileItem) => {
+    // 1. Optimistic UI update
+    setFiles((prev) =>
+      prev.map((f) => (f.id === file.id ? { ...f, isFavorite: !f.isFavorite } : f))
+    );
+    try {
+      await api.patch(`/files/${file.id}/favorite`);
+    } catch (err) {
+      console.error("Failed to toggle favorite:", err);
+      // Rollback
+      setFiles((prev) =>
+        prev.map((f) => (f.id === file.id ? { ...f, isFavorite: !!file.isFavorite } : f))
+      );
+      alert("Failed to update favorite status");
+    }
+  };
+
+  const handleChangeView = (mode: "files" | "trash" | "recent" | "favorites") => {
+    setViewMode(mode);
+    if (mode !== "files") {
+      setCurrentFolderId(null);
+      setFolderStack([]);
     }
   };
 
@@ -320,6 +356,7 @@ function App() {
   const handleEnterFolder = (f: FileItem) => {
     setCurrentFolderId(f.id);
     setFolderStack([...folderStack, { id: f.id, name: f.name }]);
+    setViewMode("files");
   };
 
   const handleDeleteRequest = (id: string) => {
@@ -443,7 +480,7 @@ function App() {
         onUpload={handleUploadInput}
         onCreateFolder={handleCreateFolder}
         onShowProfile={() => setShowProfileModal(true)}
-        onChangeView={setViewMode}
+        onChangeView={handleChangeView}
       />
 
       <main
@@ -464,8 +501,19 @@ function App() {
 
         <Header
           onSearch={handleSearch}
+          searchQuery={searchQuery}
           onLogout={handleLogout}
-          title={viewMode === "trash" ? "Trash" : (currentFolderId ? folderStack[folderStack.length - 1]?.name : "My Files")}
+          title={
+            viewMode === "trash"
+              ? "Trash"
+              : viewMode === "favorites"
+              ? "Favorites"
+              : viewMode === "recent"
+              ? "Recent"
+              : currentFolderId
+              ? folderStack[folderStack.length - 1]?.name
+              : "My Files"
+          }
           onEmptyTrash={handleEmptyTrash}
         />
 
@@ -493,6 +541,7 @@ function App() {
             selectedIds={selectedIds}
             onToggleSelect={handleToggleSelect}
             onToggleSelectAll={handleToggleSelectAll}
+            onToggleFavorite={handleToggleFavorite}
           />
         </div>
       </main>

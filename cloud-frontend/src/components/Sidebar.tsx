@@ -7,11 +7,11 @@ interface SidebarProps {
   avatarUrl?: string | null;
   storageUsed: number;
   storageLimit: number;
-  viewMode?: "files" | "trash";
+  viewMode?: "files" | "trash" | "recent" | "favorites";
   onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onCreateFolder: () => void;
   onShowProfile: () => void;
-  onChangeView?: (mode: "files" | "trash") => void;
+  onChangeView?: (mode: "files" | "trash" | "recent" | "favorites") => void;
 }
 
 const SidebarItem = ({
@@ -27,12 +27,15 @@ const SidebarItem = ({
 }) => (
   <button
     onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${active
-      ? "bg-blue-50 text-blue-700"
+    className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold transition-all duration-300 active:scale-[0.98] cursor-pointer ${active
+      ? "bg-gradient-to-r from-blue-50 to-indigo-50/50 text-blue-600 shadow-sm shadow-blue-500/5"
       : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
       }`}
   >
-    {icon} {label}
+    <span className={`transition-transform duration-300 ${active ? "scale-110 text-blue-600" : "text-slate-400 group-hover:text-slate-600"}`}>
+      {icon}
+    </span>
+    <span>{label}</span>
   </button>
 );
 
@@ -70,7 +73,7 @@ export function Sidebar({
       {/* BAGIAN PROFILE YANG BISA DIKLIK */}
       <button
         onClick={onShowProfile}
-        className="px-6 mb-6 flex items-center gap-3 w-full text-left hover:bg-slate-50 transition-colors"
+        className="px-6 py-2 mb-6 flex items-center gap-3 w-full text-left hover:bg-slate-50/80 transition-all duration-300 active:scale-[0.98] border-y border-transparent hover:border-slate-100 cursor-pointer"
       >
         <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold border border-blue-200 overflow-hidden">
           {avatarUrl ? (
@@ -94,13 +97,13 @@ export function Sidebar({
       <div className="px-6 mb-6 space-y-2">
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="w-full bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
+          className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white py-3.5 rounded-xl font-semibold hover:from-blue-600 hover:to-indigo-700 hover:shadow-xl hover:shadow-blue-500/10 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-blue-500/5"
         >
           <Upload size={20} /> Upload File
         </button>
         <button
           onClick={onCreateFolder}
-          className="w-full bg-white border-2 border-slate-200 hover:border-blue-500 hover:text-blue-600 text-slate-600 py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 font-medium cursor-pointer"
+          className="w-full bg-white border border-slate-200 hover:border-blue-500/50 hover:text-blue-600 hover:bg-blue-50/10 text-slate-600 py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-300 active:scale-[0.98] font-semibold cursor-pointer shadow-sm hover:shadow-md hover:shadow-slate-100"
         >
           <Plus size={20} /> New Folder
         </button>
@@ -119,8 +122,18 @@ export function Sidebar({
           active={viewMode === "files"}
           onClick={() => onChangeView?.("files")}
         />
-        <SidebarItem icon={<Clock size={20} />} label="Recent" />
-        <SidebarItem icon={<Star size={20} />} label="Favorites" />
+        <SidebarItem
+          icon={<Clock size={20} />}
+          label="Recent"
+          active={viewMode === "recent"}
+          onClick={() => onChangeView?.("recent")}
+        />
+        <SidebarItem
+          icon={<Star size={20} />}
+          label="Favorites"
+          active={viewMode === "favorites"}
+          onClick={() => onChangeView?.("favorites")}
+        />
         <SidebarItem
           icon={<Trash2 size={20} />}
           label="Trash"

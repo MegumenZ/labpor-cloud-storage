@@ -1,11 +1,16 @@
 import { mkdir, unlink } from "fs/promises";
 import { Elysia, t } from "elysia";
 import { db, files, users } from "../db";
-import { eq, and, isNull, ilike, inArray } from "drizzle-orm";
-import { jwt } from "@elysiajs/jwt";
+import { eq, and, isNull, ilike, inArray, desc } from "drizzle-orm";
+import { authPlugin, requireAuth } from "../auth/middleware";
+
+const BANNED_EXTENSIONS = [
+    "html", "htm", "js", "ts", "php", "phtml", "php3", "php4", "php5", "phps",
+    "asp", "aspx", "jsp", "exe", "bat", "sh", "cmd", "vbs", "com", "scr"
+];
 
 // Helper to recursively collect all descendant files/folders (inclusive of folderId structure)
-async function getAllDescendants(folderId: string, userId: string): Promise<any[]> {
+export async function getAllDescendants(folderId: string, userId: string): Promise<any[]> {
     const descendants: any[] = [];
     const queue = [folderId];
 
@@ -37,43 +42,26 @@ async function deletePhysicalFile(storagePath: string | null) {
     }
 }
 
-const getUserFromAuth = async (jwt: any, headers: any, cookie: any, set: any) => {
-    let token = cookie?.token?.value;
-    if (!token) {
-        token = headers.authorization?.split(" ")[1];
-    }
-    if (!token) {
-        set.status = 401;
-        throw new Error("Unauthorized");
-    }
-
-    const user = await jwt.verify(token);
-    if (!user) {
-        set.status = 401;
-        throw new Error("Unauthorized");
-    }
-
-    return user;
-};
-
 export const filesRoutes = new Elysia({ prefix: "/files" })
-    .use(
-        jwt({
-            name: "jwt",
-            secret: process.env.JWT_SECRET!,
-        })
-    )
-    .get("/", async ({ query, request, jwt, headers, set, cookie }) => {
-        const user = await getUserFromAuth(jwt, headers, cookie, set);
+    .use(authPlugin)
+    .get("/", async (c) => {
+        const user = await requireAuth(c);
+        const { query, request, jwtPlugin } = c;
         const parentId = query.parentId ? String(query.parentId) : (query.folderId ? String(query.folderId) : null);
         const search = query.search ? String(query.search) : null;
         const isTrash = query.trash === 'true';
+        const isFavorite = query.favorite === 'true';
+        const isRecent = query.recent === 'true';
 
         const conditions = [eq(files.isDeleted, isTrash), eq(files.userId, user.id)];
 
+        if (isFavorite) {
+            conditions.push(eq(files.isFavorite, true));
+        }
+
         if (search) {
             conditions.push(ilike(files.name, `%${search}%`));
-        } else {
+        } else if (!isFavorite && !isRecent) {
             if (parentId) {
                 conditions.push(eq(files.parentId, parentId));
             } else if (!isTrash) {
@@ -81,15 +69,20 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             }
         }
 
-        const result = await db.select().from(files).where(and(...conditions));
+        let queryBuilder = db.select().from(files).where(and(...conditions));
 
+        if (isRecent) {
+            queryBuilder = queryBuilder.orderBy(desc(files.createdAt)).limit(20) as any;
+        }
+
+        const result = await queryBuilder;
         const baseUrl = new URL(request.url).origin;
 
         const data = await Promise.all(result.map(async (f) => {
             let previewUrl = null;
             if (f.storagePath) {
                 // Buat token presigned URL valid 1 jam
-                const token = await jwt.sign({ fileId: f.id, exp: Math.floor(Date.now() / 1000) + 3600 });
+                const token = await jwtPlugin.sign({ fileId: f.id, exp: Math.floor(Date.now() / 1000) + 3600 });
                 previewUrl = `${baseUrl}/files/preview/${f.id}?token=${token}`;
             }
             return { ...f, previewUrl };
@@ -97,7 +90,26 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
         return { data };
     })
-    .get("/preview/:id", async ({ params, query, jwt, set }) => {
+    .patch("/:id/favorite", async (c) => {
+        const user = await requireAuth(c);
+        const { params, set } = c;
+        const fileId = params.id;
+
+        const existing = await db.select().from(files).where(and(eq(files.id, fileId), eq(files.userId, user.id))).limit(1);
+        if (existing.length === 0) {
+            set.status = 404;
+            return { error: "File not found" };
+        }
+
+        const fileItem = existing[0];
+        const updated = await db.update(files)
+            .set({ isFavorite: !fileItem.isFavorite })
+            .where(eq(files.id, fileId))
+            .returning();
+
+        return { data: updated[0] };
+    })
+    .get("/preview/:id", async ({ params, query, jwtPlugin, set }) => {
         const { id } = params;
         const { token } = query as { token?: string };
         if (!token) {
@@ -105,7 +117,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             return { message: "Unauthorized: Missing presigned token" };
         }
         
-        const payload = await jwt.verify(token);
+        const payload = await jwtPlugin.verify(token);
         if (!payload || payload.fileId !== id) {
             set.status = 401;
             return { message: "Unauthorized: Invalid or expired presigned token" };
@@ -124,8 +136,9 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         // Bun.file otomatis mendukung header Range untuk seeking video/audio
         return Bun.file(`uploads/${file.storagePath}`);
     })
-    .get("/:id/download", async ({ params, jwt, headers, set, cookie }) => {
-        const user = await getUserFromAuth(jwt, headers, cookie, set);
+    .get("/:id/download", async (c) => {
+        const user = await requireAuth(c);
+        const { params, set } = c;
         const { id } = params;
         const [file] = await db.select().from(files).where(and(eq(files.id, id), eq(files.userId, user.id)));
         if (!file || !file.storagePath) {
@@ -138,33 +151,40 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
     })
     .post(
         "/upload-local",
-        async ({ body, jwt, headers, set, cookie }) => {
-            const user = await getUserFromAuth(jwt, headers, cookie, set);
+        async (c) => {
+            const user = await requireAuth(c);
+            const { body, set } = c;
             const uploadedFile = body.file as File;
 
-            // 1️⃣ VALIDASI UKURAN (Diatur tinggi karena akan terhubung ke Ceph, misal 5GB)
+            // 1️⃣ VALIDASI EKSTENSI FILE BERBAHAYA (Stored XSS & RCE)
+            const extension = uploadedFile.name.split(".").pop()?.toLowerCase();
+            if (!extension || BANNED_EXTENSIONS.includes(extension)) {
+                set.status = 400;
+                return { message: "File type is not allowed for security reasons" };
+            }
+
+            // 2️⃣ VALIDASI UKURAN (Diatur tinggi karena akan terhubung ke Ceph, misal 5GB)
             const MAX_SIZE = 5 * 1024 * 1024 * 1024; // 5GB
             if (uploadedFile.size > MAX_SIZE) {
                 set.status = 400;
                 return { message: "File size exceeds 5GB" };
             }
 
-            // 2️⃣ VALIDASI NAMA FILE (MINIMAL)
+            // 3️⃣ VALIDASI NAMA FILE (MINIMAL)
             if (!uploadedFile.name || uploadedFile.name.includes("..")) {
                 set.status = 400;
                 return { message: "Invalid file name" };
             }
 
-            // 3️⃣ AMANKAN PATH (PER USER)
-            const extension = uploadedFile.name.split(".").pop();
+            // 4️⃣ AMANKAN PATH (PER USER)
             const safeFileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
             const storagePath = `${user.id}/${safeFileName}`;
 
-            // 4️⃣ SIMPAN FILE
+            // 5️⃣ SIMPAN FILE
             await mkdir(`uploads/${user.id}`, { recursive: true });
             await Bun.write(`uploads/${storagePath}`, uploadedFile);
 
-            // 5️⃣ SIMPAN KE DATABASE
+            // 6️⃣ SIMPAN KE DATABASE
             const [newFile] = await db.insert(files).values({
                 name: uploadedFile.name,
                 type: uploadedFile.type,
@@ -186,8 +206,9 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
     )
     .post(
         "/folder",
-        async ({ body, jwt, headers, set, cookie }) => {
-            const user = await getUserFromAuth(jwt, headers, cookie, set);
+        async (c) => {
+            const user = await requireAuth(c);
+            const { body, set } = c;
 
             const [newFolder] = await db.insert(files).values({
                 name: body.name,
@@ -207,8 +228,9 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             }),
         }
     )
-    .delete("/:id", async ({ params, query, jwt, headers, set, cookie }) => {
-        const user = await getUserFromAuth(jwt, headers, cookie, set);
+    .delete("/:id", async (c) => {
+        const user = await requireAuth(c);
+        const { params, query, set } = c;
         const { id } = params;
         const permanent = query.permanent === 'true';
 
@@ -250,8 +272,9 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
         return { message: "File deleted" };
     })
-    .post("/:id/restore", async ({ params, jwt, headers, set, cookie }) => {
-        const user = await getUserFromAuth(jwt, headers, cookie, set);
+    .post("/:id/restore", async (c) => {
+        const user = await requireAuth(c);
+        const { params, set } = c;
         const { id } = params;
 
         const [file] = await db.select().from(files).where(and(eq(files.id, id), eq(files.userId, user.id)));
@@ -276,8 +299,9 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
         return { message: "File restored" };
     })
-    .put("/:id/rename", async ({ params, body, jwt, headers, set, cookie }) => {
-        const user = await getUserFromAuth(jwt, headers, cookie, set);
+    .put("/:id/rename", async (c) => {
+        const user = await requireAuth(c);
+        const { params, body, set } = c;
         const { id } = params;
         const { newName } = body as { newName: string };
 
@@ -293,8 +317,9 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
         return { message: "File renamed" };
     })
-    .put("/:id/move", async ({ params, body, jwt, headers, set, cookie }) => {
-        const user = await getUserFromAuth(jwt, headers, cookie, set);
+    .put("/:id/move", async (c) => {
+        const user = await requireAuth(c);
+        const { params, body, set } = c;
         const { id } = params;
         const { targetFolderId } = body as { targetFolderId: string | null };
 
@@ -333,8 +358,9 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
         return { message: "File moved successfully" };
     })
-    .delete("/trash", async ({ jwt, headers, set, cookie }) => {
-        const user = await getUserFromAuth(jwt, headers, cookie, set);
+    .delete("/trash", async (c) => {
+        const user = await requireAuth(c);
+        const { set } = c;
 
         const trashItems = await db.select()
             .from(files)

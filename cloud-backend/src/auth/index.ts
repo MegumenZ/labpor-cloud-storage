@@ -1,16 +1,11 @@
 import { Elysia, t } from "elysia";
-import { jwt } from "@elysiajs/jwt";
 import { db, users, files } from "../db";
 import { eq, sql } from "drizzle-orm";
 import { unlink } from "fs/promises";
+import { authPlugin, requireAuth } from "./middleware";
 
 export const authRoutes = new Elysia({ prefix: "/auth" })
-    .use(
-        jwt({
-            name: "jwt",
-            secret: process.env.JWT_SECRET!
-        })
-    )
+    .use(authPlugin)
     .post(
         "/register",
         async ({ body, set }) => {
@@ -52,7 +47,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
     )
     .post(
         "/login",
-        async ({ body, jwt, set, cookie }) => {
+        async ({ body, jwtPlugin, set, cookie }) => {
             const { username, password } = body;
 
             const [user] = await db.select().from(users).where(eq(users.username, username));
@@ -68,7 +63,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 return { message: "Invalid credentials" };
             }
 
-            const token = await jwt.sign({
+            const token = await jwtPlugin.sign({
                 id: user.id,
                 username: user.username,
             });
@@ -106,26 +101,12 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
         cookie.token.remove();
         return { success: true, message: "Logged out successfully" };
     })
-    .get("/me", async ({ jwt, set, headers, cookie }) => {
-        let token = cookie.token?.value;
-        if (!token) {
-            const authHeader = headers["authorization"];
-            if (authHeader) token = authHeader.split(" ")[1];
-        }
-
-        if (!token) {
-            set.status = 401;
-            return { message: "Unauthorized" };
-        }
-        const profile = await jwt.verify(token);
-
-        if (!profile) {
-            set.status = 401;
-            return { message: "Unauthorized" };
-        }
+    .get("/me", async (c) => {
+        const profile = await requireAuth(c);
+        const { set } = c;
 
         // Fetch full user details
-        const [user] = await db.select().from(users).where(eq(users.id, profile.id as string));
+        const [user] = await db.select().from(users).where(eq(users.id, profile.id));
 
         if (!user) {
             set.status = 401;
@@ -158,26 +139,12 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             }
         };
     })
-    .get("/profile", async ({ jwt, set, headers, cookie, request }) => {
-        let token = cookie.token?.value;
-        if (!token) {
-            const authHeader = headers["authorization"];
-            if (authHeader) token = authHeader.split(" ")[1];
-        }
-
-        if (!token) {
-            set.status = 401;
-            return { message: "Unauthorized" };
-        }
-        const profile = await jwt.verify(token);
-
-        if (!profile) {
-            set.status = 401;
-            return { message: "Unauthorized" };
-        }
+    .get("/profile", async (c) => {
+        const profile = await requireAuth(c);
+        const { set, request } = c;
 
         // Fetch full user details
-        const [user] = await db.select().from(users).where(eq(users.id, profile.id as string));
+        const [user] = await db.select().from(users).where(eq(users.id, profile.id));
 
         if (!user) {
             set.status = 401;
@@ -213,23 +180,9 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             storageLimit: 1024 * 1024 * 1024 * 5,
         };
     })
-    .put("/profile", async ({ body, jwt, set, headers, cookie }) => {
-        let token = cookie.token?.value;
-        if (!token) {
-            const authHeader = headers["authorization"];
-            if (authHeader) token = authHeader.split(" ")[1];
-        }
-
-        if (!token) {
-            set.status = 401;
-            return { message: "Unauthorized" };
-        }
-        const profile = await jwt.verify(token);
-
-        if (!profile) {
-            set.status = 401;
-            return { message: "Unauthorized" };
-        }
+    .put("/profile", async (c) => {
+        const profile = await requireAuth(c);
+        const { body, set } = c;
 
         const { displayName, avatar } = body as { displayName: string; avatar?: File };
 
@@ -251,7 +204,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
         // Get old avatar before updating database
         let oldAvatar: string | null = null;
         if (avatar) {
-            const [currentUser] = await db.select({ avatar: users.avatar }).from(users).where(eq(users.id, profile.id as string));
+            const [currentUser] = await db.select({ avatar: users.avatar }).from(users).where(eq(users.id, profile.id));
             if (currentUser && currentUser.avatar) {
                 oldAvatar = currentUser.avatar;
             }
@@ -278,8 +231,13 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
 
         const [updatedUser] = await db.update(users)
             .set(updateData)
-            .where(eq(users.id, profile.id as string))
-            .returning();
+            .where(eq(users.id, profile.id))
+            .returning({
+                id: users.id,
+                username: users.username,
+                displayName: users.displayName,
+                avatar: users.avatar
+            });
 
         return {
             success: true,
@@ -290,4 +248,4 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             displayName: t.String(),
             avatar: t.Optional(t.File()),
         }),
-    });
+    })

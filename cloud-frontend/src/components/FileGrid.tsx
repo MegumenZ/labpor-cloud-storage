@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   Folder,
   FileText,
@@ -18,7 +19,8 @@ import {
   FileType,
   RefreshCw,
   LayoutGrid,
-  List
+  List,
+  Star
 } from "lucide-react";
 import type { FileItem } from "../types";
 
@@ -38,6 +40,7 @@ interface FileGridProps {
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onToggleSelectAll: () => void;
+  onToggleFavorite?: (file: FileItem) => void;
 }
 
 export function FileGrid({
@@ -54,9 +57,13 @@ export function FileGrid({
   isTrash,
   selectedIds,
   onToggleSelect,
-  onToggleSelectAll
+  onToggleSelectAll,
+  onToggleFavorite
 }: FileGridProps) {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [activeMenuFile, setActiveMenuFile] = useState<FileItem | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+
   const [viewLayout, setViewLayout] = useState<"grid" | "list">(() => {
     return (localStorage.getItem("fileViewLayout") as "grid" | "list") || "grid";
   });
@@ -72,10 +79,31 @@ export function FileGrid({
 
   // Klik luar untuk tutup menu
   useEffect(() => {
-    const handleClickOutside = () => setActiveMenuId(null);
+    const handleClickOutside = () => {
+      setActiveMenuId(null);
+      setActiveMenuFile(null);
+      setMenuPosition(null);
+    };
     if (activeMenuId) window.addEventListener("click", handleClickOutside);
     return () => window.removeEventListener("click", handleClickOutside);
   }, [activeMenuId]);
+
+  const handleMenuOpen = (e: React.MouseEvent, file: FileItem) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    
+    const dropdownHeight = file.isFolder ? 170 : 250;
+    const fitsBelow = rect.bottom + dropdownHeight <= window.innerHeight;
+    
+    const top = fitsBelow 
+      ? rect.bottom + window.scrollY + 4 
+      : rect.top + window.scrollY - dropdownHeight - 4;
+    const left = rect.right + window.scrollX - 192; // Dropdown width is 192px
+    
+    setActiveMenuId(file.id);
+    setActiveMenuFile(file);
+    setMenuPosition({ top, left });
+  };
 
   const getIcon = (f: FileItem, iconSize = 40) => {
     if (f.isFolder)
@@ -174,9 +202,18 @@ export function FileGrid({
 
   if (files.length === 0)
     return (
-      <div className="text-center py-20 border-2 border-dashed rounded-xl text-slate-400 bg-slate-50/50">
-        <Cloud size={48} className="mx-auto mb-2 text-slate-300" />
-        <p className="font-medium">{isTrash ? "Trash is empty" : "Empty Folder"}</p>
+      <div className="text-center py-24 border border-slate-100 rounded-3xl text-slate-500 bg-gradient-to-b from-white to-slate-50/40 shadow-sm max-w-xl mx-auto animate-in fade-in zoom-in-95 duration-300 mt-10">
+        <div className="w-20 h-20 bg-blue-50/85 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-md shadow-blue-500/5">
+          <Cloud size={36} className="text-blue-500" />
+        </div>
+        <h3 className="text-lg font-bold text-slate-700 mb-2">
+          {isTrash ? "Trash is Empty" : "Empty Directory"}
+        </h3>
+        <p className="text-sm text-slate-400 max-w-xs mx-auto font-medium leading-relaxed">
+          {isTrash 
+            ? "Items moved to trash will appear here. They will be deleted automatically after 30 days." 
+            : "No files or folders found here. Drag & drop or click Upload to get started!"}
+        </p>
       </div>
     );
 
@@ -256,11 +293,11 @@ export function FileGrid({
                   onSelect(file);
                 }
               }}
-              className={`group bg-white p-5 rounded-2xl border cursor-pointer relative transition-all duration-300
+              className={`group bg-white p-5 rounded-3xl border cursor-pointer relative transition-all duration-300
                 ${activeMenuId === file.id
-                  ? "z-40 shadow-xl border-slate-300"
-                  : "z-10 border-slate-200 hover:shadow-md hover:-translate-y-1"
-                } ${selectedIds.has(file.id) ? "border-blue-500 ring-4 ring-blue-500/10 bg-blue-50/5" : ""}`}
+                  ? "z-40 shadow-[0_20px_50px_rgba(0,0,0,0.15)] border-slate-300 scale-[1.02]"
+                  : "z-10 border-slate-100 shadow-[0_8px_30px_rgba(0,0,0,0.015)] hover:shadow-[0_20px_40px_rgba(59,130,246,0.06)] hover:-translate-y-1.5 hover:border-blue-200/50"
+                } ${selectedIds.has(file.id) ? "border-blue-500 ring-4 ring-blue-500/10 bg-blue-50/5" : ""} active:scale-[0.98]`}
             >
               {/* Checkbox Selection (Hanya muncul jika di-hover atau ada file yang sudah diseleksi) */}
               <div
@@ -282,6 +319,25 @@ export function FileGrid({
                 />
               </div>
 
+              {/* Favorite Star Button */}
+              {!isTrash && (
+                <button
+                  type="button"
+                  className={`absolute top-4 left-12 z-20 p-1.5 rounded-lg transition-all duration-200 cursor-pointer ${
+                    file.isFavorite
+                      ? "opacity-100 scale-100 text-amber-500 hover:scale-110 active:scale-95"
+                      : "opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 text-slate-300 hover:text-amber-400 hover:scale-110 active:scale-95"
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleFavorite?.(file);
+                  }}
+                  title={file.isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+                >
+                  <Star size={18} className={file.isFavorite ? "fill-amber-500 text-amber-500 glow-star" : "text-slate-300"} />
+                </button>
+              )}
+
               {/* Tiga Titik Menu Pop-up */}
               <div className="absolute top-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
                 {isTrash ? (
@@ -302,78 +358,24 @@ export function FileGrid({
                     </button>
                   </div>
                 ) : (
-                  <>
                     <button
-                      onClick={() => setActiveMenuId(activeMenuId === file.id ? null : file.id)}
-                      className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                      onClick={(e) => {
+                        if (activeMenuId === file.id) {
+                          setActiveMenuId(null);
+                          setMenuPosition(null);
+                          setActiveMenuFile(null);
+                        } else {
+                          handleMenuOpen(e, file);
+                        }
+                      }}
+                      className={`p-1.5 hover:bg-slate-100 rounded-lg transition-all cursor-pointer
+                        ${activeMenuId === file.id 
+                          ? "text-blue-600 bg-slate-100 opacity-100 scale-105" 
+                          : "text-slate-400 opacity-0 group-hover:opacity-100"
+                        }`}
                     >
                       <MoreVertical size={20} />
                     </button>
-
-                    {activeMenuId === file.id && (
-                      <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
-                        {!file.isFolder && (
-                          <button
-                            onClick={() => {
-                              setActiveMenuId(null);
-                              onSelect(file);
-                            }}
-                            className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer"
-                          >
-                            <Eye size={16} className="text-slate-400" /> Open
-                          </button>
-                        )}
-                        {!file.isFolder && (
-                          <button
-                            onClick={() => {
-                              setActiveMenuId(null);
-                              onDownload(file);
-                            }}
-                            className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer"
-                          >
-                            <Download size={16} className="text-slate-400" /> Download
-                          </button>
-                        )}
-                        <button
-                          onClick={() => {
-                            setActiveMenuId(null);
-                            onRename(file);
-                          }}
-                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer"
-                        >
-                          <Edit2 size={16} className="text-slate-400" /> Rename
-                        </button>
-                        <button
-                          onClick={() => {
-                            setActiveMenuId(null);
-                            onMove(file);
-                          }}
-                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer"
-                        >
-                          <FolderInput size={16} className="text-slate-400" /> Move
-                        </button>
-                        <button
-                          onClick={() => {
-                            setActiveMenuId(null);
-                            onProperties(file);
-                          }}
-                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer"
-                        >
-                          <Info size={16} className="text-slate-400" /> Info
-                        </button>
-                        <div className="border-t my-1 border-slate-100"></div>
-                        <button
-                          onClick={() => {
-                            setActiveMenuId(null);
-                            onDelete(file.id);
-                          }}
-                          className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex gap-2 items-center font-medium cursor-pointer"
-                        >
-                          <Trash2 size={16} /> Delete
-                        </button>
-                      </div>
-                    )}
-                  </>
                 )}
               </div>
 
@@ -392,7 +394,7 @@ export function FileGrid({
       ) : (
         /* List Detail Layout - Table View */
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-200">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto min-h-[300px]">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/50 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -405,6 +407,7 @@ export function FileGrid({
                       className="w-5 h-5 text-blue-600 bg-white border-slate-300 rounded-lg cursor-pointer focus:ring-2 focus:ring-blue-500/20 transition-all"
                     />
                   </th>
+                  {!isTrash && <th className="py-4 px-2 w-10 text-center"></th>}
                   <th
                     onClick={() => handleHeaderClick("name")}
                     className="py-4 px-6 cursor-pointer hover:bg-slate-100/50 transition-colors select-none"
@@ -441,8 +444,9 @@ export function FileGrid({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
-                {sortedFiles.map((file) => (
-                  <tr
+                {sortedFiles.map((file) => {
+                  return (
+                    <tr
                     key={file.id}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -465,6 +469,24 @@ export function FileGrid({
                         className="w-5 h-5 text-blue-600 bg-white border-slate-300 rounded-lg cursor-pointer focus:ring-2 focus:ring-blue-500/20 transition-all"
                       />
                     </td>
+
+                    {/* Favorite Column */}
+                    {!isTrash && (
+                      <td className="py-3 px-2 w-10 text-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => onToggleFavorite?.(file)}
+                          className={`p-1.5 rounded-lg transition-all duration-200 cursor-pointer ${
+                            file.isFavorite
+                              ? "text-amber-500 hover:scale-110 active:scale-95"
+                              : "text-slate-300 opacity-0 group-hover:opacity-100 hover:text-amber-400 hover:scale-110 active:scale-95"
+                          }`}
+                          title={file.isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+                        >
+                          <Star size={16} className={file.isFavorite ? "fill-amber-500 text-amber-500 glow-star" : "text-slate-300"} />
+                        </button>
+                      </td>
+                    )}
 
                     {/* Name Column */}
                     <td className="py-3 px-6 font-medium text-slate-700 min-w-[200px]">
@@ -517,86 +539,120 @@ export function FileGrid({
                           </button>
                         </div>
                       ) : (
-                        <div className="relative inline-block text-left">
-                          <button
-                            onClick={() => setActiveMenuId(activeMenuId === file.id ? null : file.id)}
-                            className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                          >
-                            <MoreVertical size={16} />
-                          </button>
-
-                          {activeMenuId === file.id && (
-                            <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
-                              {!file.isFolder && (
-                                <button
-                                  onClick={() => {
-                                    setActiveMenuId(null);
-                                    onSelect(file);
-                                  }}
-                                  className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer"
-                                >
-                                  <Eye size={16} className="text-slate-400" /> Open
-                                </button>
-                              )}
-                              {!file.isFolder && (
-                                <button
-                                  onClick={() => {
-                                    setActiveMenuId(null);
-                                    onDownload(file);
-                                  }}
-                                  className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer"
-                                >
-                                  <Download size={16} className="text-slate-400" /> Download
-                                </button>
-                              )}
-                              <button
-                                onClick={() => {
-                                  setActiveMenuId(null);
-                                  onRename(file);
-                                }}
-                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer"
-                              >
-                                <Edit2 size={16} className="text-slate-400" /> Rename
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setActiveMenuId(null);
-                                  onMove(file);
-                                }}
-                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer"
-                              >
-                                <FolderInput size={16} className="text-slate-400" /> Move
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setActiveMenuId(null);
-                                  onProperties(file);
-                                }}
-                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer"
-                              >
-                                <Info size={16} className="text-slate-400" /> Info
-                              </button>
-                              <div className="border-t my-1 border-slate-100"></div>
-                              <button
-                                onClick={() => {
-                                  setActiveMenuId(null);
-                                  onDelete(file.id);
-                                }}
-                                className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex gap-2 items-center font-medium cursor-pointer"
-                              >
-                                <Trash2 size={16} /> Delete
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                        <button
+                          onClick={(e) => {
+                            if (activeMenuId === file.id) {
+                              setActiveMenuId(null);
+                              setMenuPosition(null);
+                              setActiveMenuFile(null);
+                            } else {
+                              handleMenuOpen(e, file);
+                            }
+                          }}
+                          className={`p-1.5 hover:bg-slate-100 rounded-lg transition-all cursor-pointer
+                            ${activeMenuId === file.id 
+                              ? "text-blue-600 bg-slate-100 opacity-100 scale-105" 
+                              : "text-slate-400 opacity-0 group-hover:opacity-100"
+                            }`}
+                        >
+                          <MoreVertical size={16} />
+                        </button>
                       )}
                     </td>
-                  </tr>
-                ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
+      )}
+
+      {/* Dynamic Action Menu using React Portal */}
+      {activeMenuId && menuPosition && activeMenuFile && createPortal(
+        <div
+          style={{
+            position: "absolute",
+            top: `${menuPosition.top}px`,
+            left: `${menuPosition.left}px`,
+            width: "192px",
+          }}
+          className="bg-white rounded-xl shadow-2xl border border-slate-200/80 overflow-hidden z-[9999] animate-in fade-in slide-in-from-top-2 origin-top-right"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {!activeMenuFile.isFolder && (
+            <button
+              onClick={() => {
+                setActiveMenuId(null);
+                setMenuPosition(null);
+                setActiveMenuFile(null);
+                onSelect(activeMenuFile);
+              }}
+              className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer transition-colors animate-fade-in"
+            >
+              <Eye size={16} className="text-slate-400" /> Open
+            </button>
+          )}
+          {!activeMenuFile.isFolder && (
+            <button
+              onClick={() => {
+                setActiveMenuId(null);
+                setMenuPosition(null);
+                setActiveMenuFile(null);
+                onDownload(activeMenuFile);
+              }}
+              className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer transition-colors"
+            >
+              <Download size={16} className="text-slate-400" /> Download
+            </button>
+          )}
+          <button
+            onClick={() => {
+              setActiveMenuId(null);
+              setMenuPosition(null);
+              setActiveMenuFile(null);
+              onRename(activeMenuFile);
+            }}
+            className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer transition-colors"
+          >
+            <Edit2 size={16} className="text-slate-400" /> Rename
+          </button>
+          <button
+            onClick={() => {
+              setActiveMenuId(null);
+              setMenuPosition(null);
+              setActiveMenuFile(null);
+              onMove(activeMenuFile);
+            }}
+            className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer transition-colors"
+          >
+            <FolderInput size={16} className="text-slate-400" /> Move
+          </button>
+          <button
+            onClick={() => {
+              setActiveMenuId(null);
+              setMenuPosition(null);
+              setActiveMenuFile(null);
+              onProperties(activeMenuFile);
+            }}
+            className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex gap-2 items-center text-slate-700 font-medium cursor-pointer transition-colors"
+          >
+            <Info size={16} className="text-slate-400" /> Info
+          </button>
+          <div className="border-t my-1 border-slate-100"></div>
+          <button
+            onClick={() => {
+              setActiveMenuId(null);
+              setMenuPosition(null);
+              setActiveMenuFile(null);
+              onDelete(activeMenuFile.id);
+            }}
+            className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex gap-2 items-center font-medium cursor-pointer transition-colors"
+          >
+            <Trash2 size={16} /> Delete
+          </button>
+        </div>,
+        document.body
       )}
     </div>
   );
