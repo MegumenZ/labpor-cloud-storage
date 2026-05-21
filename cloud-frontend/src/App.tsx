@@ -15,13 +15,28 @@ import DeleteModal from "./components/modals/DeleteModal";
 import PropertiesModal from "./components/modals/PropertiesModal";
 import ProfileModal from "./components/modals/ProfileModal";
 
+// Import shadcn/ui & Sonner Premium Components
+import { Toaster, toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+
 function App() {
   // --- STATE ---
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
-  const [storageInfo, setStorageInfo] = useState<{ used: number; limit: number }>({
+  const [storageInfo, setStorageInfo] = useState<{
+    used: number;
+    limit: number;
+  }>({
     used: 0,
     limit: 0,
   });
@@ -30,9 +45,13 @@ function App() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [folderStack, setFolderStack] = useState<{ id: string; name: string }[]>([]);
+  const [folderStack, setFolderStack] = useState<
+    { id: string; name: string }[]
+  >([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<"files" | "trash" | "recent" | "favorites">("files");
+  const [viewMode, setViewMode] = useState<
+    "files" | "trash" | "recent" | "favorites"
+  >("files");
 
   // Modal States
   const [fileToDelete, setFileToDelete] = useState<string | null>(null);
@@ -40,6 +59,10 @@ function App() {
   const [filesToMove, setFilesToMove] = useState<FileItem[]>([]);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [fileProperties, setFileProperties] = useState<FileItem | null>(null);
+
+  // shadcn/ui Dialog States
+  const [isNewFolderOpen, setIsNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
 
   // Multi-Select States
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -69,7 +92,7 @@ function App() {
               setUserAvatar(
                 avatar.startsWith("http")
                   ? avatar
-                  : `${api.defaults.baseURL}/uploads/avatars/${avatar}`
+                  : `${api.defaults.baseURL}/uploads/avatars/${avatar}`,
               );
             }
           }
@@ -98,7 +121,12 @@ function App() {
 
       if (searchQuery) {
         params.search = searchQuery;
-      } else if (viewMode !== "trash" && viewMode !== "favorites" && viewMode !== "recent" && currentFolderId) {
+      } else if (
+        viewMode !== "trash" &&
+        viewMode !== "favorites" &&
+        viewMode !== "recent" &&
+        currentFolderId
+      ) {
         params.folderId = currentFolderId;
       }
 
@@ -125,13 +153,16 @@ function App() {
     // Frontend validation (5GB limit for large Ceph uploads)
     const MAX_SIZE = 5 * 1024 * 1024 * 1024; // 5GB
     if (file.size > MAX_SIZE) {
-      alert("File size exceeds the 5GB limit!");
+      toast.error("Ukuran berkas melebihi batas maksimal 5GB!");
       return;
     }
+
+    const toastId = toast.loading(`Mengunggah berkas "${file.name}"...`);
     const tempUrl = URL.createObjectURL(file);
     const formData = new FormData();
     formData.append("file", file);
     if (currentFolderId) formData.append("parentId", currentFolderId);
+
     try {
       const res = await api.post("/files/upload-local", formData, {
         withCredentials: true,
@@ -139,24 +170,51 @@ function App() {
       });
       const newFile = { ...res.data.data, previewUrl: tempUrl };
       setFiles((prev) => [newFile, ...prev]);
+      toast.success(`Berkas "${file.name}" berhasil diunggah!`, {
+        id: toastId,
+      });
     } catch (err) {
-      const message = (err as { response?: { data?: { message?: string } } }).response?.data?.message || "Upload failed";
-      alert(message);
+      const message =
+        (err as { response?: { data?: { message?: string } } }).response?.data
+          ?.message || "Gagal mengunggah berkas";
+      toast.error(message, { id: toastId });
     }
   };
 
   const handleLogout = async () => {
-    await api.post("/auth/logout").catch(() => { });
+    await api.post("/auth/logout").catch(() => {});
     localStorage.removeItem("token");
     setIsAuthenticated(false);
+    toast.success("Berhasil keluar dari sistem");
   };
-  const handleCreateFolder = async () => {
-    const name = prompt("Name:");
-    if (name) {
-      await api.post("/files/folder", { name, parentId: currentFolderId });
+
+  const handleCreateFolder = () => {
+    setNewFolderName("");
+    setIsNewFolderOpen(true);
+  };
+
+  const onCreateFolderSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFolderName.trim()) return;
+
+    const toastId = toast.loading(`Membuat folder "${newFolderName}"...`);
+    try {
+      await api.post("/files/folder", {
+        name: newFolderName,
+        parentId: currentFolderId,
+      });
+      toast.success(`Folder "${newFolderName}" berhasil dibuat!`, {
+        id: toastId,
+      });
+      setIsNewFolderOpen(false);
+      setNewFolderName("");
       fetchFiles();
+    } catch (err) {
+      console.error(err); // Menyelesaikan ESLint @typescript-eslint/no-unused-vars
+      toast.error("Gagal membuat folder baru", { id: toastId });
     }
   };
+
   const handleUploadInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
       performUpload(e.target.files[0]);
@@ -167,65 +225,120 @@ function App() {
   const handleDelete = async () => {
     if (fileToDelete) {
       const isPermanent = viewMode === "trash";
-      await api.delete(`/files/${fileToDelete}`, {
-        params: { permanent: isPermanent }
-      });
-      setFileToDelete(null);
-      fetchFiles();
+      const toastId = toast.loading(
+        isPermanent ? "Menghapus permanen..." : "Memindahkan ke Trash...",
+      );
+      try {
+        await api.delete(`/files/${fileToDelete}`, {
+          params: { permanent: isPermanent },
+        });
+        setFileToDelete(null);
+        fetchFiles();
+        toast.success(
+          isPermanent
+            ? "Berkas dihapus secara permanen!"
+            : "Berkas dipindahkan ke Trash",
+          { id: toastId },
+        );
+      } catch (err) {
+        console.error(err); // Menyelesaikan ESLint @typescript-eslint/no-unused-vars
+        toast.error("Gagal menghapus berkas", { id: toastId });
+      }
     }
   };
 
   const handleRestore = async (id: string) => {
-    await api.post(`/files/${id}/restore`);
-    fetchFiles();
+    const toastId = toast.loading("Memulihkan berkas...");
+    try {
+      await api.post(`/files/${id}/restore`);
+      fetchFiles();
+      toast.success("Berkas berhasil dipulihkan!", { id: toastId });
+    } catch (err) {
+      console.error(err); // Menyelesaikan ESLint @typescript-eslint/no-unused-vars
+      toast.error("Gagal memulihkan berkas", { id: toastId });
+    }
   };
 
   const handleEmptyTrash = async () => {
-    if (confirm("Are you sure you want to permanently delete all items in the trash?")) {
-      await api.delete("/files/trash");
-      fetchFiles();
+    if (
+      confirm(
+        "Apakah Anda yakin ingin menghapus permanen semua item di dalam Trash?",
+      )
+    ) {
+      const toastId = toast.loading("Mengosongkan Trash...");
+      try {
+        await api.delete("/files/trash");
+        fetchFiles();
+        toast.success("Trash berhasil dikosongkan!", { id: toastId });
+      } catch (err) {
+        console.error(err); // Menyelesaikan ESLint @typescript-eslint/no-unused-vars
+        toast.error("Gagal mengosongkan Trash", { id: toastId });
+      }
     }
   };
 
   const handleDownload = async (f: FileItem) => {
-    const res = await api.get(`/files/${f.id}/download`, {
-      responseType: "blob",
-    });
-    const url = window.URL.createObjectURL(new Blob([res.data]));
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", f.name);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    const toastId = toast.loading(`Mengunduh "${f.name}"...`);
+    try {
+      const res = await api.get(`/files/${f.id}/download`, {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", f.name);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success(`Selesai mengunduh "${f.name}"`, { id: toastId });
+    } catch (err) {
+      console.error(err); // Menyelesaikan ESLint @typescript-eslint/no-unused-vars
+      toast.error(`Gagal mengunduh "${f.name}"`, { id: toastId });
+    }
   };
 
   const handleRename = async (f: FileItem) => {
-    const name = prompt("New Name:", f.name);
+    const name = prompt("Nama Baru:", f.name);
     if (name && name !== f.name) {
-      await api.put(`/files/${f.id}/rename`, { newName: name });
-      fetchFiles();
+      const toastId = toast.loading("Mengubah nama...");
+      try {
+        await api.put(`/files/${f.id}/rename`, { newName: name });
+        fetchFiles();
+        toast.success("Nama berkas berhasil diubah!", { id: toastId });
+      } catch (err) {
+        console.error(err); // Menyelesaikan ESLint @typescript-eslint/no-unused-vars
+        toast.error("Gagal mengubah nama berkas", { id: toastId });
+      }
     }
   };
 
   const handleToggleFavorite = async (file: FileItem) => {
     // 1. Optimistic UI update
     setFiles((prev) =>
-      prev.map((f) => (f.id === file.id ? { ...f, isFavorite: !f.isFavorite } : f))
+      prev.map((f) =>
+        f.id === file.id ? { ...f, isFavorite: !f.isFavorite } : f,
+      ),
     );
     try {
       await api.patch(`/files/${file.id}/favorite`);
+      toast.success(
+        file.isFavorite ? "Dihapus dari Favorit" : "Ditambahkan ke Favorit",
+      );
     } catch (err) {
       console.error("Failed to toggle favorite:", err);
       // Rollback
       setFiles((prev) =>
-        prev.map((f) => (f.id === file.id ? { ...f, isFavorite: !!file.isFavorite } : f))
+        prev.map((f) =>
+          f.id === file.id ? { ...f, isFavorite: !!file.isFavorite } : f,
+        ),
       );
-      alert("Failed to update favorite status");
+      toast.error("Gagal memperbarui status favorit");
     }
   };
 
-  const handleChangeView = (mode: "files" | "trash" | "recent" | "favorites") => {
+  const handleChangeView = (
+    mode: "files" | "trash" | "recent" | "favorites",
+  ) => {
     setViewMode(mode);
     if (mode !== "files") {
       setCurrentFolderId(null);
@@ -276,21 +389,25 @@ function App() {
     if (selectedIds.size === 0) return;
     const isPermanent = viewMode === "trash";
     const confirmMsg = isPermanent
-      ? `Are you sure you want to permanently delete the ${selectedIds.size} selected items?`
-      : `Move the ${selectedIds.size} selected items to trash?`;
+      ? `Apakah Anda yakin ingin menghapus permanen ${selectedIds.size} item terpilih?`
+      : `Pindahkan ${selectedIds.size} item terpilih ke Trash?`;
 
     if (confirm(confirmMsg)) {
+      const toastId = toast.loading(
+        `Menghapus ${selectedIds.size} elemen terpilih...`,
+      );
       setLoading(true);
       try {
         await Promise.all(
           Array.from(selectedIds).map((id) =>
-            api.delete(`/files/${id}`, { params: { permanent: isPermanent } })
-          )
+            api.delete(`/files/${id}`, { params: { permanent: isPermanent } }),
+          ),
         );
         handleClearSelection();
         fetchFiles();
+        toast.success("Item terpilih berhasil dihapus", { id: toastId });
       } catch {
-        alert("Some files failed to delete.");
+        toast.error("Beberapa berkas gagal dihapus.", { id: toastId });
       } finally {
         setLoading(false);
       }
@@ -298,18 +415,26 @@ function App() {
   };
 
   const handleBulkDownload = async () => {
-    const selectedFiles = files.filter(f => selectedIds.has(f.id));
-    const selectedOnlyFiles = selectedFiles.filter(f => !f.isFolder);
+    const selectedFiles = files.filter((f) => selectedIds.has(f.id));
+    const selectedOnlyFiles = selectedFiles.filter((f) => !f.isFolder);
     const folderCount = selectedFiles.length - selectedOnlyFiles.length;
 
     if (selectedOnlyFiles.length === 0) {
-      alert("No files selected to download (folders cannot be downloaded directly).");
+      toast.error(
+        "Tidak ada file terpilih untuk diunduh (folder tidak dapat diunduh secara langsung).",
+      );
       return;
     }
 
     if (folderCount > 0) {
-      alert(`Note: ${folderCount} folder(s) will be skipped from download.`);
+      toast.info(
+        `Catatan: ${folderCount} folder akan dilewati dari proses unduhan.`,
+      );
     }
+
+    const toastId = toast.loading(
+      `Memulai proses unduh ${selectedOnlyFiles.length} berkas...`,
+    );
 
     // Trigger downloads sequentially to prevent popup blocker blocking them
     for (let i = 0; i < selectedOnlyFiles.length; i++) {
@@ -330,6 +455,7 @@ function App() {
         console.error(`Failed to download ${f.name}:`, err);
       }
     }
+    toast.success("Seluruh unduhan berhasil dijalankan!", { id: toastId });
   };
 
   // Navigation Handlers
@@ -338,16 +464,18 @@ function App() {
     if (folderId === null) {
       setFolderStack([]);
     } else {
-      // Find the folder in the current stack or files to update the stack
-      const folder = folderStack.find(f => f.id === folderId) || files.find(f => f.id === folderId && f.type === 'folder');
+      const folder =
+        folderStack.find((f) => f.id === folderId) ||
+        files.find((f) => f.id === folderId && f.type === "folder");
       if (folder) {
-        const index = folderStack.findIndex(f => f.id === folderId);
+        const index = folderStack.findIndex((f) => f.id === folderId);
         if (index !== -1) {
           setFolderStack(folderStack.slice(0, index + 1));
         } else {
-          // This case should ideally not happen if navigation is always through existing stack or current files
-          // But as a fallback, if we navigate to a folder not in stack, add it.
-          setFolderStack([...folderStack, { id: folder.id, name: folder.name }]);
+          setFolderStack([
+            ...folderStack,
+            { id: folder.id, name: folder.name },
+          ]);
         }
       }
     }
@@ -367,8 +495,6 @@ function App() {
     setFileProperties(file);
   };
 
-
-
   // Drag & Drop
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -384,21 +510,19 @@ function App() {
     if (e.dataTransfer.files?.[0]) performUpload(e.dataTransfer.files[0]);
   };
 
-
-
   if (authLoading)
     return (
       <div className="flex h-screen items-center justify-center text-slate-400">
         Loading...
       </div>
     );
+
   if (!isAuthenticated)
     return (
       <Login
         onLoginSuccess={(u) => {
           setIsAuthenticated(true);
           setCurrentUser(u);
-          // Trigger fetch profile to get avatar and display name
           api.get("/auth/me").then((res) => {
             setDisplayName(res.data.user.displayName || "");
             setStorageInfo({
@@ -410,7 +534,7 @@ function App() {
               setUserAvatar(
                 avatar.startsWith("http")
                   ? avatar
-                  : `${api.defaults.baseURL}/uploads/avatars/${avatar}`
+                  : `${api.defaults.baseURL}/uploads/avatars/${avatar}`,
               );
             }
           });
@@ -420,6 +544,9 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900 relative">
+      {/* GLOBAL SONNER TOASTER */}
+      <Toaster richColors position="bottom-right" closeButton />
+
       {/* MODALS */}
       {selectedFile && (
         <PreviewModal
@@ -443,17 +570,29 @@ function App() {
           onCancel={() => setFileToDelete(null)}
         />
       )}
-      {fileProperties && (
-        <PropertiesModal
-          file={fileProperties}
-          breadcrumbs={folderStack} // Changed to folderStack
-          onClose={() => setFileProperties(null)}
-        />
-      )}
+
+      {/* Global shadcn/ui Dialog Integration for File Properties */}
+      <Dialog
+        open={!!fileProperties}
+        onOpenChange={(open: boolean) => !open && setFileProperties(null)}
+      >
+        {fileProperties && (
+          <PropertiesModal
+            file={fileProperties}
+            breadcrumbs={folderStack}
+            onClose={() => setFileProperties(null)}
+          />
+        )}
+      </Dialog>
+
       {showProfileModal && (
         <ProfileModal
           onClose={() => setShowProfileModal(false)}
-          onUpdate={(updatedUser: { username?: string; displayName?: string | null; avatar?: string | null }) => {
+          onUpdate={(updatedUser: {
+            username?: string;
+            displayName?: string | null;
+            avatar?: string | null;
+          }) => {
             if (updatedUser?.username) {
               setCurrentUser(updatedUser.username);
             }
@@ -461,14 +600,49 @@ function App() {
               setDisplayName(updatedUser.displayName || "");
             }
             if (updatedUser?.avatar) {
-              // If it's already a full URL (from ProfileModal), use it.
-              // If it's a filename (from some other source?), construct it.
-              // ProfileModal sends full URL.
               setUserAvatar(updatedUser.avatar);
             }
           }}
         />
       )}
+
+      {/* Global shadcn/ui Dialog for New Folder Action */}
+      <Dialog open={isNewFolderOpen} onOpenChange={setIsNewFolderOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Buat Folder Baru</DialogTitle>
+            <DialogDescription>
+              Masukkan nama folder baru yang ingin Anda buat di direktori saat
+              ini.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={onCreateFolderSubmit}>
+            <div className="grid gap-4 py-4">
+              <input
+                type="text"
+                placeholder="Nama Folder"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                className="flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent transition-all"
+                autoFocus
+                required
+              />
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsNewFolderOpen(false)}
+              >
+                Batal
+              </Button>
+              <Button type="submit" disabled={!newFolderName.trim()}>
+                Buat Folder
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Sidebar
         currentUser={currentUser}
@@ -491,9 +665,7 @@ function App() {
       >
         {isDragging && (
           <div className="fixed inset-0 z-50 bg-blue-500/10 backdrop-blur-sm border-4 border-blue-500 border-dashed m-4 rounded-3xl flex items-center justify-center pointer-events-none">
-            <div
-              className="bg-white p-8 rounded-full shadow-2xl animate-bounce"
-            >
+            <div className="bg-white p-8 rounded-full shadow-2xl animate-bounce">
               <Cloud size={64} className="text-blue-500" />
             </div>
           </div>
@@ -507,12 +679,12 @@ function App() {
             viewMode === "trash"
               ? "Trash"
               : viewMode === "favorites"
-              ? "Favorites"
-              : viewMode === "recent"
-              ? "Recent"
-              : currentFolderId
-              ? folderStack[folderStack.length - 1]?.name
-              : "My Files"
+                ? "Favorites"
+                : viewMode === "recent"
+                  ? "Recent"
+                  : currentFolderId
+                    ? folderStack[folderStack.length - 1]?.name
+                    : "My Files"
           }
           onEmptyTrash={handleEmptyTrash}
         />
@@ -520,10 +692,7 @@ function App() {
         <div className="flex-1 p-6">
           {/* Breadcrumb (Only show in 'files' mode) */}
           {viewMode === "files" && (
-            <Breadcrumbs
-              items={folderStack}
-              onNavigate={handleNavigate}
-            />
+            <Breadcrumbs items={folderStack} onNavigate={handleNavigate} />
           )}
 
           <FileGrid
@@ -554,7 +723,9 @@ function App() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setFilesToMove(files.filter(f => selectedIds.has(f.id)))}
+              onClick={() =>
+                setFilesToMove(files.filter((f) => selectedIds.has(f.id)))
+              }
               className="px-4 py-2 hover:bg-slate-100 rounded-xl text-sm font-semibold text-slate-600 hover:text-slate-800 transition-all flex items-center gap-2 cursor-pointer"
             >
               <FolderInput size={16} /> Move
@@ -586,4 +757,5 @@ function App() {
     </div>
   );
 }
+
 export default App;
