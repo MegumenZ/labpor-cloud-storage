@@ -8,8 +8,9 @@ import {
   boolean,
   integer,
   bigint,
+  index,
   type AnyPgColumn,
-} from "drizzle-orm/pg-core"; // Tambah import
+} from "drizzle-orm/pg-core"; // Tambah import relations dan index
 import { relations } from "drizzle-orm"; // Tambah import relations
 import postgres from "postgres";
 
@@ -29,9 +30,9 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow(),
   displayName: text("display_name"),
   avatar: text("avatar"),
+  themePreference: text("theme_preference").default("light").notNull(),
 });
 
-// --- 2. TABEL FILES (METADATA) ---
 export const files = pgTable("files", {
   id: uuid("id").defaultRandom().primaryKey(),
 
@@ -59,6 +60,14 @@ export const files = pgTable("files", {
 
   // Favorites
   isFavorite: boolean("is_favorite").default(false),
+}, (table) => {
+  return {
+    userIdIdx: index("user_id_idx").on(table.userId),
+    parentIdIdx: index("parent_id_idx").on(table.parentId),
+    userIdIsDeletedIdx: index("user_id_is_deleted_idx").on(table.userId, table.isDeleted),
+    userIdIsFavoriteIdx: index("user_id_is_favorite_idx").on(table.userId, table.isFavorite),
+    createdAtIdx: index("created_at_idx").on(table.createdAt),
+  };
 });
 
 // --- 3. DEFINISI RELASI (Agar Drizzle pintar saat query) ---

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Search, LogOut, Trash2 } from "lucide-react";
+import { Search, LogOut, Trash2, Sun, Moon } from "lucide-react";
 
 interface HeaderProps {
   onLogout?: () => void;
@@ -7,6 +7,8 @@ interface HeaderProps {
   searchQuery?: string;
   title?: string;
   onEmptyTrash?: () => void;
+  theme?: "light" | "dark";
+  onThemeToggle?: () => void;
 }
 
 export function Header({
@@ -15,9 +17,13 @@ export function Header({
   searchQuery = "",
   title = "My Files",
   onEmptyTrash,
+  theme = "light",
+  onThemeToggle,
 }: HeaderProps) {
   const [localSearch, setLocalSearch] = useState(searchQuery);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+
 
   // Sync local search when parent clears or changes the search query
   useEffect(() => {
@@ -47,16 +53,16 @@ export function Header({
   };
 
   return (
-    <header className="grid grid-cols-[1fr_auto_1fr] items-center mb-6 gap-4 w-full">
+    <header className="grid grid-cols-3 items-center mb-6 gap-4 w-full select-none">
       {/* Left Column: Title & Dynamic Action Button */}
-      <div className="flex items-center gap-4 min-w-0">
-        <h1 className="text-xl font-semibold text-slate-800 truncate" title={title}>
+      <div className="flex items-center gap-4 min-w-0 justify-start">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground truncate" title={title}>
           {title}
         </h1>
         {title === "Trash" && onEmptyTrash && (
           <button
             onClick={onEmptyTrash}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors shrink-0"
+            className="flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-red-600 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 rounded-lg transition-colors shrink-0 cursor-pointer"
           >
             <Trash2 size={16} /> Empty Trash
           </button>
@@ -64,23 +70,36 @@ export function Header({
       </div>
 
       {/* Center Column: Steady Fixed Search Bar */}
-      <div className="relative w-64 sm:w-80 md:w-96 lg:w-[400px] shrink-0">
-        <Search className="absolute left-3 top-2.5 text-slate-400 w-5 h-5" />
-        <input
-          type="text"
-          placeholder="Search files..."
-          value={localSearch}
-          onChange={handleInputChange}
-          className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-400 focus:shadow-md focus:shadow-blue-500/5 transition-all duration-300"
-        />
+      <div className="flex justify-center w-full min-w-0">
+        <div className="relative w-full max-w-[400px] shrink-0">
+          <Search className="absolute left-3.5 top-3 text-muted-foreground w-4.5 h-4.5" />
+          <input
+            type="text"
+            placeholder="Search files..."
+            value={localSearch}
+            onChange={handleInputChange}
+            className="w-full pl-10 pr-4 py-2.5 bg-card border border-border text-foreground rounded-2xl focus:outline-none focus:ring-3 focus:ring-primary/15 focus:border-primary focus:shadow-md focus:shadow-primary/5 transition-all duration-300 text-sm font-medium"
+          />
+        </div>
       </div>
 
-      {/* Right Column: Logout Button aligned right */}
-      <div className="flex justify-end min-w-0">
+      {/* Right Column: Theme Toggle & Logout Button aligned right */}
+      <div className="flex justify-end items-center gap-3.5 min-w-0">
+        <button
+          onClick={onThemeToggle}
+          className="p-2.5 bg-card border border-border rounded-xl transition-all cursor-pointer text-muted-foreground hover:text-foreground hover:bg-accent/40 active:scale-95 flex items-center justify-center shrink-0 shadow-sm"
+          title={theme === "dark" ? "Ganti ke Mode Terang" : "Ganti ke Mode Gelap"}
+        >
+          {theme === "dark" ? (
+            <Sun size={18} className="text-amber-500 animate-in spin-in-45 duration-500" />
+          ) : (
+            <Moon size={18} className="text-primary animate-in spin-in-45 duration-500" />
+          )}
+        </button>
         {onLogout && (
           <button
             onClick={onLogout}
-            className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-red-600 transition-colors shrink-0"
+            className="flex items-center gap-2 text-sm font-bold text-muted-foreground hover:text-destructive transition-colors shrink-0 cursor-pointer px-3.5 py-2.5 hover:bg-destructive/10 rounded-xl"
           >
             <LogOut size={18} /> Logout
           </button>

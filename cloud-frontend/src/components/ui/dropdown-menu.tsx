@@ -244,7 +244,7 @@ function DropdownMenuSubContent({
     <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
       className={cn(
-        "z-50 min-w-24 overflow-hidden rounded-md border bg-popover...",
+        "z-50 min-w-24 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
         className,
       )}
       {...props}

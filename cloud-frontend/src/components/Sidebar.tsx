@@ -27,12 +27,12 @@ const SidebarItem = ({
 }) => (
   <button
     onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold transition-all duration-300 active:scale-[0.98] cursor-pointer ${active
-      ? "bg-gradient-to-r from-blue-50 to-indigo-50/50 text-blue-600 shadow-sm shadow-blue-500/5"
-      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+    className={`w-full flex items-center gap-3 py-3 rounded-xl font-bold transition-all duration-300 active:scale-[0.98] cursor-pointer border-l-4 ${active
+      ? "bg-gradient-to-r from-sidebar-primary/15 to-transparent border-sidebar-primary text-sidebar-primary pl-3 shadow-none"
+      : "border-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground hover:pl-5 pl-4"
       }`}
   >
-    <span className={`transition-transform duration-300 ${active ? "scale-110 text-blue-600" : "text-slate-400 group-hover:text-slate-600"}`}>
+    <span className={`transition-all duration-300 ${active ? "scale-110 text-sidebar-primary" : "text-sidebar-foreground/45 group-hover:text-sidebar-primary/70"}`}>
       {icon}
     </span>
     <span>{label}</span>
@@ -64,18 +64,18 @@ export function Sidebar({
   const percentage = storageLimit > 0 ? (storageUsed / storageLimit) * 100 : 0;
 
   return (
-    <aside className="w-64 bg-white border-r border-slate-200 hidden md:flex md:flex-col shrink-0 sticky top-0 h-screen z-10">
-      <div className="p-6 flex items-center gap-2 text-blue-600">
+    <aside className="w-64 bg-sidebar border-r border-sidebar-border hidden md:flex md:flex-col shrink-0 sticky top-0 h-screen z-10 select-none">
+      <div className="p-6 flex items-center gap-2 text-sidebar-primary">
         <Cloud size={32} strokeWidth={2.5} />
-        <span className="text-xl font-bold tracking-tight">SkyStore</span>
+        <span className="text-xl font-extrabold tracking-tight">SkyStore</span>
       </div>
 
       {/* BAGIAN PROFILE YANG BISA DIKLIK */}
       <button
         onClick={onShowProfile}
-        className="px-6 py-2 mb-6 flex items-center gap-3 w-full text-left hover:bg-slate-50/80 transition-all duration-300 active:scale-[0.98] border-y border-transparent hover:border-slate-100 cursor-pointer"
+        className="px-6 py-2 mb-6 flex items-center gap-3 w-full text-left hover:bg-sidebar-accent/80 transition-all duration-300 active:scale-[0.98] border-y border-transparent hover:border-sidebar-border cursor-pointer"
       >
-        <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold border border-blue-200 overflow-hidden">
+        <div className="w-10 h-10 rounded-full bg-sidebar-primary/10 flex items-center justify-center text-sidebar-primary font-bold border border-sidebar-primary/20 overflow-hidden shrink-0">
           {avatarUrl ? (
             <img
               src={avatarUrl}
@@ -87,23 +87,23 @@ export function Sidebar({
           )}
         </div>
         <div className="overflow-hidden">
-          <p className="text-sm font-bold text-slate-700 truncate">
+          <p className="text-sm font-bold text-sidebar-foreground truncate">
             {displayName || currentUser}
           </p>
-          <p className="text-xs text-slate-400">Online</p>
+          <p className="text-xs text-sidebar-foreground/50">Online</p>
         </div>
       </button>
 
       <div className="px-6 mb-6 space-y-2">
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white py-3.5 rounded-xl font-semibold hover:from-blue-600 hover:to-indigo-700 hover:shadow-xl hover:shadow-blue-500/10 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-blue-500/5"
+          className="w-full bg-primary text-primary-foreground py-3.5 rounded-xl font-bold hover:bg-primary/95 hover:shadow-xl hover:shadow-primary/10 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-primary/5"
         >
           <Upload size={20} /> Upload File
         </button>
         <button
           onClick={onCreateFolder}
-          className="w-full bg-white border border-slate-200 hover:border-blue-500/50 hover:text-blue-600 hover:bg-blue-50/10 text-slate-600 py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-300 active:scale-[0.98] font-semibold cursor-pointer shadow-sm hover:shadow-md hover:shadow-slate-100"
+          className="w-full bg-card border border-border hover:border-primary/50 hover:text-primary hover:bg-primary/5 text-foreground py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-300 active:scale-[0.98] font-bold cursor-pointer shadow-sm"
         >
           <Plus size={20} /> New Folder
         </button>
@@ -142,22 +142,22 @@ export function Sidebar({
         />
       </nav>
 
-      <div className="p-6 mt-auto border-t border-slate-100">
-        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+      <div className="p-6 mt-auto border-t border-sidebar-border/40">
+        <div className="bg-sidebar-accent/50 p-4 rounded-2xl border border-sidebar-border/50">
           <div className="flex items-center gap-3 mb-3">
-            <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+            <div className="p-2 bg-sidebar-primary/10 text-sidebar-primary rounded-lg shrink-0">
               <HardDrive size={20} />
             </div>
-            <div>
-              <p className="text-sm font-bold text-slate-700">Storage</p>
-              <p className="text-xs text-slate-500">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-sidebar-foreground">Storage</p>
+              <p className="text-xs text-sidebar-foreground/60 truncate">
                 {formatSize(storageUsed)} of {formatSize(storageLimit)} used
               </p>
             </div>
           </div>
-          <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+          <div className="w-full bg-sidebar-border rounded-full h-2 overflow-hidden">
             <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+              className="bg-sidebar-primary h-2 rounded-full transition-all duration-500"
               style={{ width: `${Math.min(percentage, 100)}%` }}
             ></div>
           </div>

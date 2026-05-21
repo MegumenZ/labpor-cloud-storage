@@ -1,37 +1,42 @@
 import { AlertTriangle } from "lucide-react";
+import { DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
-export default function DeleteModal({
-  onConfirm,
-  onCancel,
-}: {
+interface DeleteModalProps {
   onConfirm: () => void;
   onCancel: () => void;
-}) {
+}
+
+export default function DeleteModal({ onConfirm, onCancel }: DeleteModalProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 animate-in zoom-in-95">
-        <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4 text-red-600 mx-auto">
+    <DialogContent className="sm:max-w-[400px] border border-border/80 shadow-2xl rounded-2xl p-6 bg-popover text-popover-foreground animate-in zoom-in-95 duration-200">
+      <DialogHeader className="flex flex-col items-center gap-3">
+        <div className="w-12 h-12 rounded-full bg-destructive/10 border border-destructive/20 flex items-center justify-center text-destructive animate-pulse">
           <AlertTriangle size={24} />
         </div>
-        <h3 className="text-lg font-bold mb-2 text-center">Delete Item?</h3>
-        <p className="text-slate-500 mb-6 text-center">
-          This action cannot be undone.
-        </p>
-        <div className="flex gap-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-2 bg-slate-100 rounded-xl font-medium"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="flex-1 py-2 bg-red-600 text-white rounded-xl font-medium"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
+        <DialogTitle className="text-xl font-bold text-center text-foreground">
+          Hapus Item?
+        </DialogTitle>
+        <DialogDescription className="text-muted-foreground text-center text-sm leading-relaxed">
+          Apakah Anda yakin ingin menghapus item ini? Tindakan ini tidak dapat dibatalkan dan data akan hilang secara permanen.
+        </DialogDescription>
+      </DialogHeader>
+
+      <DialogFooter className="flex flex-row gap-3 w-full mt-4 justify-center sm:justify-center border-none bg-transparent p-0">
+        <Button
+          onClick={onCancel}
+          variant="outline"
+          className="flex-1 py-5 rounded-xl font-semibold border-border hover:bg-accent text-foreground transition-all cursor-pointer"
+        >
+          Batal
+        </Button>
+        <Button
+          onClick={onConfirm}
+          className="flex-1 py-5 rounded-xl font-semibold bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-md shadow-destructive/10 transition-all cursor-pointer"
+        >
+          Hapus Permanen
+        </Button>
+      </DialogFooter>
+    </DialogContent>
   );
 }

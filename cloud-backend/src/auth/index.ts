@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import { db, users, files } from "../db";
 import { eq, sql } from "drizzle-orm";
 import { unlink } from "fs/promises";
-import { authPlugin, requireAuth } from "./middleware";
+import { authPlugin, requireAuth, createRateLimiter } from "./middleware";
 
 export const authRoutes = new Elysia({ prefix: "/auth" })
     .use(authPlugin)
@@ -33,11 +33,13 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                     id: newUser.id,
                     username: newUser.username,
                     displayName: newUser.displayName,
-                    avatar: newUser.avatar
+                    avatar: newUser.avatar,
+                    themePreference: newUser.themePreference
                 }
             };
         },
         {
+            beforeHandle: createRateLimiter(5, 60 * 1000), // Maksimal 5 registrasi per menit per IP
             body: t.Object({
                 username: t.String(),
                 password: t.String(),
@@ -73,7 +75,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 value: token,
                 httpOnly: true,
                 path: "/",
-                secure: false, // set to true if running over HTTPS
+                secure: process.env.NODE_ENV === "production",
                 sameSite: "lax",
                 maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
             });
@@ -87,10 +89,12 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                     username: user.username,
                     displayName: user.displayName,
                     avatar: user.avatar,
+                    themePreference: user.themePreference
                 },
             };
         },
         {
+            beforeHandle: createRateLimiter(5, 60 * 1000), // Maksimal 5 login per menit per IP
             body: t.Object({
                 username: t.String(),
                 password: t.String(),
@@ -136,6 +140,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 totalFiles: totalFiles,
                 usedStorage: usedStorage,
                 storageLimit: 1024 * 1024 * 1024 * 5, // 5GB
+                themePreference: user.themePreference,
             }
         };
     })
@@ -178,6 +183,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             totalFiles: totalFiles,
             usedStorage: usedStorage,
             storageLimit: 1024 * 1024 * 1024 * 5,
+            themePreference: user.themePreference,
         };
     })
     .put("/profile", async (c) => {
@@ -236,7 +242,8 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 id: users.id,
                 username: users.username,
                 displayName: users.displayName,
-                avatar: users.avatar
+                avatar: users.avatar,
+                themePreference: users.themePreference
             });
 
         return {
@@ -249,3 +256,31 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             avatar: t.Optional(t.File()),
         }),
     })
+    .put(
+        "/theme",
+        async (c) => {
+            const profile = await requireAuth(c);
+            const { body, set } = c;
+            const { theme } = body;
+
+            if (theme !== "light" && theme !== "dark") {
+                set.status = 400;
+                return { message: "Tema tidak valid" };
+            }
+
+            const [updatedUser] = await db.update(users)
+                .set({ themePreference: theme })
+                .where(eq(users.id, profile.id))
+                .returning();
+
+            return {
+                success: true,
+                theme: updatedUser.themePreference
+            };
+        },
+        {
+            body: t.Object({
+                theme: t.String(),
+            }),
+        }
+    )

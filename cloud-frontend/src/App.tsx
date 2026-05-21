@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { Cloud, FolderInput, Trash2, Download, X } from "lucide-react";
 import Login from "./Login";
 import api from "./api";
@@ -9,7 +9,7 @@ import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
 import { FileGrid } from "./components/FileGrid";
 import Breadcrumbs from "./components/Breadcrumbs";
-import PreviewModal from "./components/modals/PreviewModal";
+const PreviewModal = lazy(() => import("./components/modals/PreviewModal"));
 import MoveModal from "./components/modals/MoveModal";
 import DeleteModal from "./components/modals/DeleteModal";
 import PropertiesModal from "./components/modals/PropertiesModal";
@@ -41,6 +41,24 @@ function App() {
     limit: 0,
   });
   const [authLoading, setAuthLoading] = useState(true);
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("theme");
+      if (saved === "light" || saved === "dark") return saved;
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    return "light";
+  });
+
+  useEffect(() => {
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [theme]);
 
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -87,6 +105,9 @@ function App() {
               used: res.data.user.usedStorage || 0,
               limit: res.data.user.storageLimit || 0,
             });
+            if (res.data.user.themePreference) {
+              setTheme(res.data.user.themePreference);
+            }
             if (res.data.user.avatar) {
               const avatar = res.data.user.avatar;
               setUserAvatar(
@@ -157,7 +178,7 @@ function App() {
       return;
     }
 
-    const toastId = toast.loading(`Mengunggah berkas "${file.name}"...`);
+    const toastId = toast.loading(`Mengunggah berkas "${file.name}"... (0%)`);
     const tempUrl = URL.createObjectURL(file);
     const formData = new FormData();
     formData.append("file", file);
@@ -167,6 +188,17 @@ function App() {
       const res = await api.post("/files/upload-local", formData, {
         withCredentials: true,
         headers: { "Content-Type": "multipart/form-data" },
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const percentCompleted = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total
+            );
+            // Gunakan toastId yang sama untuk memperbarui pesan toast di layar secara dinamis
+            toast.loading(`Mengunggah berkas "${file.name}"... (${percentCompleted}%)`, {
+              id: toastId,
+            });
+          }
+        },
       });
       const newFile = { ...res.data.data, previewUrl: tempUrl };
       setFiles((prev) => [newFile, ...prev]);
@@ -186,6 +218,21 @@ function App() {
     localStorage.removeItem("token");
     setIsAuthenticated(false);
     toast.success("Berhasil keluar dari sistem");
+  };
+
+  const handleThemeToggle = async () => {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+
+    if (isAuthenticated) {
+      try {
+        await api.put("/auth/theme", { theme: nextTheme });
+      } catch (err) {
+        console.error("Gagal menyimpan preferensi tema ke server:", err);
+        setTheme(theme);
+        toast.error("Gagal menyimpan preferensi tema ke server");
+      }
+    }
   };
 
   const handleCreateFolder = () => {
@@ -529,6 +576,9 @@ function App() {
               used: res.data.user.usedStorage || 0,
               limit: res.data.user.storageLimit || 0,
             });
+            if (res.data.user.themePreference) {
+              setTheme(res.data.user.themePreference);
+            }
             if (res.data.user.avatar) {
               const avatar = res.data.user.avatar;
               setUserAvatar(
@@ -543,33 +593,56 @@ function App() {
     );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900 relative">
+    <div className="min-h-screen bg-background flex font-sans text-foreground relative">
       {/* GLOBAL SONNER TOASTER */}
       <Toaster richColors position="bottom-right" closeButton />
 
       {/* MODALS */}
-      {selectedFile && (
-        <PreviewModal
-          file={selectedFile}
-          onClose={() => setSelectedFile(null)}
-        />
-      )}
-      {filesToMove.length > 0 && (
-        <MoveModal
-          files={filesToMove}
-          onClose={() => setFilesToMove([])}
-          onMoveSuccess={() => {
-            fetchFiles();
-            handleClearSelection();
-          }}
-        />
-      )}
-      {fileToDelete && (
-        <DeleteModal
-          onConfirm={handleDelete}
-          onCancel={() => setFileToDelete(null)}
-        />
-      )}
+      <Dialog
+        open={!!selectedFile}
+        onOpenChange={(open: boolean) => !open && setSelectedFile(null)}
+      >
+        {selectedFile && (
+          <Suspense fallback={
+            <div className="w-full h-48 flex flex-col items-center justify-center gap-3 text-muted-foreground bg-popover rounded-2xl border border-border">
+              <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin"></div>
+              <p className="text-sm font-medium">Memuat peninjau berkas...</p>
+            </div>
+          }>
+            <PreviewModal
+              file={selectedFile}
+            />
+          </Suspense>
+        )}
+      </Dialog>
+
+      <Dialog
+        open={filesToMove.length > 0}
+        onOpenChange={(open: boolean) => !open && setFilesToMove([])}
+      >
+        {filesToMove.length > 0 && (
+          <MoveModal
+            files={filesToMove}
+            onClose={() => setFilesToMove([])}
+            onMoveSuccess={() => {
+              fetchFiles();
+              handleClearSelection();
+            }}
+          />
+        )}
+      </Dialog>
+
+      <Dialog
+        open={!!fileToDelete}
+        onOpenChange={(open: boolean) => !open && setFileToDelete(null)}
+      >
+        {fileToDelete && (
+          <DeleteModal
+            onConfirm={handleDelete}
+            onCancel={() => setFileToDelete(null)}
+          />
+        )}
+      </Dialog>
 
       {/* Global shadcn/ui Dialog Integration for File Properties */}
       <Dialog
@@ -585,26 +658,31 @@ function App() {
         )}
       </Dialog>
 
-      {showProfileModal && (
-        <ProfileModal
-          onClose={() => setShowProfileModal(false)}
-          onUpdate={(updatedUser: {
-            username?: string;
-            displayName?: string | null;
-            avatar?: string | null;
-          }) => {
-            if (updatedUser?.username) {
-              setCurrentUser(updatedUser.username);
-            }
-            if (updatedUser?.displayName !== undefined) {
-              setDisplayName(updatedUser.displayName || "");
-            }
-            if (updatedUser?.avatar) {
-              setUserAvatar(updatedUser.avatar);
-            }
-          }}
-        />
-      )}
+      <Dialog
+        open={showProfileModal}
+        onOpenChange={(open: boolean) => !open && setShowProfileModal(false)}
+      >
+        {showProfileModal && (
+          <ProfileModal
+            onClose={() => setShowProfileModal(false)}
+            onUpdate={(updatedUser: {
+              username?: string;
+              displayName?: string | null;
+              avatar?: string | null;
+            }) => {
+              if (updatedUser?.username) {
+                setCurrentUser(updatedUser.username);
+              }
+              if (updatedUser?.displayName !== undefined) {
+                setDisplayName(updatedUser.displayName || "");
+              }
+              if (updatedUser?.avatar) {
+                setUserAvatar(updatedUser.avatar);
+              }
+            }}
+          />
+        )}
+      </Dialog>
 
       {/* Global shadcn/ui Dialog for New Folder Action */}
       <Dialog open={isNewFolderOpen} onOpenChange={setIsNewFolderOpen}>
@@ -623,7 +701,7 @@ function App() {
                 placeholder="Nama Folder"
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
-                className="flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent transition-all"
+                className="flex h-10 w-full rounded-xl border border-border bg-background text-foreground px-3 py-2 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-transparent transition-all"
                 autoFocus
                 required
               />
@@ -665,13 +743,15 @@ function App() {
       >
         {isDragging && (
           <div className="fixed inset-0 z-50 bg-blue-500/10 backdrop-blur-sm border-4 border-blue-500 border-dashed m-4 rounded-3xl flex items-center justify-center pointer-events-none">
-            <div className="bg-white p-8 rounded-full shadow-2xl animate-bounce">
+            <div className="bg-popover border border-border/80 p-8 rounded-full shadow-2xl animate-bounce text-primary">
               <Cloud size={64} className="text-blue-500" />
             </div>
           </div>
         )}
 
         <Header
+          theme={theme}
+          onThemeToggle={handleThemeToggle}
           onSearch={handleSearch}
           searchQuery={searchQuery}
           onLogout={handleLogout}
@@ -717,8 +797,8 @@ function App() {
 
       {/* BULK ACTIONS FLOATING TOOLBAR */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200/80 px-6 py-3.5 rounded-2xl flex items-center gap-6 z-50 animate-in slide-in-from-bottom-5 duration-300">
-          <div className="text-sm font-semibold text-slate-700 select-none border-r pr-4 border-slate-200">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-card/90 backdrop-blur-md shadow-2xl border border-border/80 px-6 py-3.5 rounded-2xl flex items-center gap-6 z-50 animate-in slide-in-from-bottom-5 duration-300 text-card-foreground">
+          <div className="text-sm font-semibold text-foreground select-none border-r pr-4 border-border">
             {selectedIds.size} selected
           </div>
           <div className="flex items-center gap-3">
@@ -726,28 +806,28 @@ function App() {
               onClick={() =>
                 setFilesToMove(files.filter((f) => selectedIds.has(f.id)))
               }
-              className="px-4 py-2 hover:bg-slate-100 rounded-xl text-sm font-semibold text-slate-600 hover:text-slate-800 transition-all flex items-center gap-2 cursor-pointer"
+              className="px-4 py-2 hover:bg-accent rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground transition-all flex items-center gap-2 cursor-pointer"
             >
               <FolderInput size={16} /> Move
             </button>
             {viewMode === "files" && (
               <button
                 onClick={handleBulkDownload}
-                className="px-4 py-2 hover:bg-slate-100 rounded-xl text-sm font-semibold text-slate-600 hover:text-slate-800 transition-all flex items-center gap-2 cursor-pointer"
+                className="px-4 py-2 hover:bg-accent rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground transition-all flex items-center gap-2 cursor-pointer"
               >
                 <Download size={16} /> Download
               </button>
             )}
             <button
               onClick={handleBulkDelete}
-              className="px-4 py-2 hover:bg-red-50 rounded-xl text-sm font-semibold text-red-600 hover:text-red-700 transition-all flex items-center gap-2 cursor-pointer"
+              className="px-4 py-2 hover:bg-destructive/15 rounded-xl text-sm font-semibold text-destructive hover:bg-destructive/20 transition-all flex items-center gap-2 cursor-pointer"
             >
               <Trash2 size={16} /> Delete
             </button>
           </div>
           <button
             onClick={handleClearSelection}
-            className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+            className="p-1.5 hover:bg-accent rounded-lg text-muted-foreground hover:text-foreground transition-all cursor-pointer"
             title="Clear Selection"
           >
             <X size={16} />

@@ -5,6 +5,6 @@ export default defineConfig({
     out: "./drizzle",
     dialect: "postgresql",
     dbCredentials: {
-        url: "postgres://postgres:123456789@localhost:5432/skripsi_cloud",
+        url: process.env.DATABASE_URL || "postgres://postgres:123456789@localhost:5432/skripsi_cloud",
     },
 });
