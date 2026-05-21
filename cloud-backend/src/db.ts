@@ -70,6 +70,13 @@ export const files = pgTable("files", {
   };
 });
 
+// --- 2. TABEL RATE LIMITS (Persisten & Bebas Biaya) ---
+export const rateLimits = pgTable("rate_limits", {
+  ip: text("ip").primaryKey(),
+  count: integer("count").notNull(),
+  resetAt: timestamp("reset_at").notNull(),
+});
+
 // --- 3. DEFINISI RELASI (Agar Drizzle pintar saat query) ---
 
 // Satu User punya BANYAK File

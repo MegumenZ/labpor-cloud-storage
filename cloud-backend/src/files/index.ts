@@ -11,23 +11,31 @@ const BANNED_EXTENSIONS = [
 
 // Helper to recursively collect all descendant files/folders (inclusive of folderId structure)
 export async function getAllDescendants(folderId: string, userId: string): Promise<any[]> {
-    const descendants: any[] = [];
-    const queue = [folderId];
+    const result = await db.execute(sql`
+        WITH RECURSIVE descendants AS (
+            SELECT * FROM files WHERE parent_id = ${folderId} AND user_id = ${userId}
+            UNION ALL
+            SELECT f.* FROM files f
+            INNER JOIN descendants d ON f.parent_id = d.id AND f.user_id = ${userId}
+        )
+        SELECT * FROM descendants;
+    `);
 
-    while (queue.length > 0) {
-        const currentId = queue.shift()!;
-        const children = await db.select()
-            .from(files)
-            .where(and(eq(files.parentId, currentId), eq(files.userId, userId)));
-        
-        for (const child of children) {
-            descendants.push(child);
-            if (child.isFolder) {
-                queue.push(child.id);
-            }
-        }
-    }
-    return descendants;
+    // Map snake_case database columns back to camelCase properties expected by our code
+    return result.map((row: any) => ({
+        id: row.id,
+        userId: row.user_id,
+        parentId: row.parent_id,
+        name: row.name,
+        type: row.type,
+        size: Number(row.size),
+        storagePath: row.storage_path,
+        isFolder: row.is_folder === true || row.is_folder === 'true' || row.is_folder === 1,
+        isDeleted: row.is_deleted === true || row.is_deleted === 'true' || row.is_deleted === 1,
+        isFavorite: row.is_favorite === true || row.is_favorite === 'true' || row.is_favorite === 1,
+        createdAt: row.created_at,
+        deletedAt: row.deleted_at
+    }));
 }
 
 // Helper to delete physical file on disk

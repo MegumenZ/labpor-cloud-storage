@@ -1,5 +1,7 @@
 import { Elysia } from "elysia";
 import { jwt } from "@elysiajs/jwt";
+import { db, rateLimits } from "../db";
+import { eq } from "drizzle-orm";
 
 if (!process.env.JWT_SECRET) {
     throw new Error("CRITICAL: JWT_SECRET environment variable is missing! Server cannot start safely.");
@@ -58,12 +60,9 @@ export async function requireAuth(context: any) {
     return payload as { id: string; username: string };
 }
 
-// Store in-memory untuk melacak laju request per alamat IP
-const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
-
 /**
- * Pembuat middleware pembatas laju request (Rate Limiter) berbasis IP klien.
- * Sangat berguna untuk mencegah serangan brute force dan DoS pada endpoint sensitif.
+ * Pembuat middleware pembatas laju request (Rate Limiter) berbasis IP klien dengan PostgreSQL.
+ * Aman dari restart server, persisten, dan 100% bebas biaya/infrastruktur tambahan.
  */
 export function createRateLimiter(maxRequests: number, windowMs: number) {
     return async ({ request, set }: any) => {
@@ -71,28 +70,70 @@ export function createRateLimiter(maxRequests: number, windowMs: number) {
         const rawIp = request.headers?.get("x-forwarded-for") || "127.0.0.1";
         const ip = rawIp.split(",")[0].trim();
         
-        const now = Date.now();
-        const record = rateLimitStore.get(ip);
+        const now = new Date();
+        const nowMs = now.getTime();
 
-        if (!record) {
-            rateLimitStore.set(ip, { count: 1, resetTime: now + windowMs });
-            return;
-        }
+        try {
+            // 1. Ambil rekaman rate limit dari database berdasarkan IP
+            const [record] = await db.select().from(rateLimits).where(eq(rateLimits.ip, ip)).limit(1);
 
-        if (now > record.resetTime) {
-            rateLimitStore.set(ip, { count: 1, resetTime: now + windowMs });
-            return;
-        }
+            if (!record) {
+                // Jika belum terdaftar, buat rekaman baru
+                const resetAt = new Date(nowMs + windowMs);
+                try {
+                    await db.insert(rateLimits).values({
+                        ip,
+                        count: 1,
+                        resetAt,
+                    });
+                } catch {
+                    // Proteksi concurrent insertion
+                    await db.update(rateLimits)
+                        .set({ count: 1, resetAt })
+                        .where(eq(rateLimits.ip, ip));
+                }
+                return;
+            }
 
-        record.count += 1;
-        if (record.count > maxRequests) {
-            set.status = 429; // Too Many Requests
-            const remainingSeconds = Math.ceil((record.resetTime - now) / 1000);
-            set.headers["Retry-After"] = remainingSeconds.toString();
-            return {
-                success: false,
-                message: `Terlalu banyak percobaan! Silakan coba lagi dalam ${remainingSeconds} detik.`
-            };
+            const recordResetTime = record.resetAt.getTime();
+
+            if (nowMs > recordResetTime) {
+                // Jika sudah melewati jendela reset, set ulang hitungan
+                const resetAt = new Date(nowMs + windowMs);
+                await db.update(rateLimits)
+                    .set({
+                        count: 1,
+                        resetAt,
+                    })
+                    .where(eq(rateLimits.ip, ip));
+                return;
+            }
+
+            const newCount = record.count + 1;
+
+            if (newCount > maxRequests) {
+                // Blokir request, tapi tetap update hitungan di DB agar akurat
+                await db.update(rateLimits)
+                    .set({ count: newCount })
+                    .where(eq(rateLimits.ip, ip));
+
+                set.status = 429; // Too Many Requests
+                const remainingSeconds = Math.max(1, Math.ceil((recordResetTime - nowMs) / 1000));
+                set.headers["Retry-After"] = remainingSeconds.toString();
+                return {
+                    success: false,
+                    message: `Terlalu banyak percobaan! Silakan coba lagi dalam ${remainingSeconds} detik.`
+                };
+            }
+
+            // Simpan kenaikan hitungan
+            await db.update(rateLimits)
+                .set({ count: newCount })
+                .where(eq(rateLimits.ip, ip));
+
+        } catch (dbError) {
+            // Fail-open: Jika koneksi DB bermasalah, tetap izinkan request demi UX pengguna
+            console.error("Rate Limiter Database Error (Fail-Open):", dbError);
         }
     };
 }
