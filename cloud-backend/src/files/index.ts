@@ -37,8 +37,11 @@ async function deletePhysicalFile(storagePath: string | null) {
     }
 }
 
-const getUserFromAuth = async (jwt: any, headers: any, set: any) => {
-    const token = headers.authorization?.split(" ")[1];
+const getUserFromAuth = async (jwt: any, headers: any, cookie: any, set: any) => {
+    let token = cookie?.token?.value;
+    if (!token) {
+        token = headers.authorization?.split(" ")[1];
+    }
     if (!token) {
         set.status = 401;
         throw new Error("Unauthorized");
@@ -60,8 +63,8 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             secret: process.env.JWT_SECRET!,
         })
     )
-    .get("/", async ({ query, request, jwt, headers, set }) => {
-        const user = await getUserFromAuth(jwt, headers, set);
+    .get("/", async ({ query, request, jwt, headers, set, cookie }) => {
+        const user = await getUserFromAuth(jwt, headers, cookie, set);
         const parentId = query.parentId ? String(query.parentId) : (query.folderId ? String(query.folderId) : null);
         const search = query.search ? String(query.search) : null;
         const isTrash = query.trash === 'true';
@@ -114,11 +117,15 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             return { message: "File not found" };
         }
         
+        // Strict CSP to prevent script execution (stored XSS vector) in sandboxed browser frames
+        set.headers["Content-Security-Policy"] = "default-src 'none'; sandbox;";
+        set.headers["X-Content-Type-Options"] = "nosniff";
+        
         // Bun.file otomatis mendukung header Range untuk seeking video/audio
         return Bun.file(`uploads/${file.storagePath}`);
     })
-    .get("/:id/download", async ({ params, jwt, headers, set }) => {
-        const user = await getUserFromAuth(jwt, headers, set);
+    .get("/:id/download", async ({ params, jwt, headers, set, cookie }) => {
+        const user = await getUserFromAuth(jwt, headers, cookie, set);
         const { id } = params;
         const [file] = await db.select().from(files).where(and(eq(files.id, id), eq(files.userId, user.id)));
         if (!file || !file.storagePath) {
@@ -131,8 +138,8 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
     })
     .post(
         "/upload-local",
-        async ({ body, jwt, headers, set }) => {
-            const user = await getUserFromAuth(jwt, headers, set);
+        async ({ body, jwt, headers, set, cookie }) => {
+            const user = await getUserFromAuth(jwt, headers, cookie, set);
             const uploadedFile = body.file as File;
 
             // 1️⃣ VALIDASI UKURAN (Diatur tinggi karena akan terhubung ke Ceph, misal 5GB)
@@ -161,7 +168,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             const [newFile] = await db.insert(files).values({
                 name: uploadedFile.name,
                 type: uploadedFile.type,
-                size: String(uploadedFile.size),
+                size: uploadedFile.size,
                 parentId: body.parentId || null,
                 userId: user.id,
                 isFolder: false,
@@ -179,13 +186,13 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
     )
     .post(
         "/folder",
-        async ({ body, jwt, headers, set }) => {
-            const user = await getUserFromAuth(jwt, headers, set);
+        async ({ body, jwt, headers, set, cookie }) => {
+            const user = await getUserFromAuth(jwt, headers, cookie, set);
 
             const [newFolder] = await db.insert(files).values({
                 name: body.name,
                 type: "folder",
-                size: "0",
+                size: 0,
                 parentId: body.parentId || null,
                 userId: user.id,
                 isFolder: true,
@@ -200,8 +207,8 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             }),
         }
     )
-    .delete("/:id", async ({ params, query, jwt, headers, set }) => {
-        const user = await getUserFromAuth(jwt, headers, set);
+    .delete("/:id", async ({ params, query, jwt, headers, set, cookie }) => {
+        const user = await getUserFromAuth(jwt, headers, cookie, set);
         const { id } = params;
         const permanent = query.permanent === 'true';
 
@@ -243,8 +250,8 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
         return { message: "File deleted" };
     })
-    .post("/:id/restore", async ({ params, jwt, headers, set }) => {
-        const user = await getUserFromAuth(jwt, headers, set);
+    .post("/:id/restore", async ({ params, jwt, headers, set, cookie }) => {
+        const user = await getUserFromAuth(jwt, headers, cookie, set);
         const { id } = params;
 
         const [file] = await db.select().from(files).where(and(eq(files.id, id), eq(files.userId, user.id)));
@@ -269,8 +276,8 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
         return { message: "File restored" };
     })
-    .put("/:id/rename", async ({ params, body, jwt, headers, set }) => {
-        const user = await getUserFromAuth(jwt, headers, set);
+    .put("/:id/rename", async ({ params, body, jwt, headers, set, cookie }) => {
+        const user = await getUserFromAuth(jwt, headers, cookie, set);
         const { id } = params;
         const { newName } = body as { newName: string };
 
@@ -286,8 +293,8 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
         return { message: "File renamed" };
     })
-    .put("/:id/move", async ({ params, body, jwt, headers, set }) => {
-        const user = await getUserFromAuth(jwt, headers, set);
+    .put("/:id/move", async ({ params, body, jwt, headers, set, cookie }) => {
+        const user = await getUserFromAuth(jwt, headers, cookie, set);
         const { id } = params;
         const { targetFolderId } = body as { targetFolderId: string | null };
 
@@ -326,8 +333,8 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
         return { message: "File moved successfully" };
     })
-    .delete("/trash", async ({ jwt, headers, set }) => {
-        const user = await getUserFromAuth(jwt, headers, set);
+    .delete("/trash", async ({ jwt, headers, set, cookie }) => {
+        const user = await getUserFromAuth(jwt, headers, cookie, set);
 
         const trashItems = await db.select()
             .from(files)

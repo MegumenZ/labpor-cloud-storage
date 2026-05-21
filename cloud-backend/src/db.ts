@@ -7,6 +7,7 @@ import {
   uuid,
   boolean,
   integer,
+  bigint,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core"; // Tambah import
 import { relations } from "drizzle-orm"; // Tambah import relations
@@ -43,7 +44,7 @@ export const files = pgTable("files", {
 
   name: text("name").notNull(),
   type: text("type").notNull(), // 'folder', 'image/png', 'application/pdf', dll
-  size: text("size").notNull(), // Disimpan sebagai string "2.5 MB" biar gampang dulu
+  size: bigint("size", { mode: "number" }).notNull(),
 
   // Path virtual (Nanti dipakai buat S3 Key di Ceph)
   storagePath: text("storage_path"),

@@ -12,7 +12,10 @@ import { eq, lt, and } from "drizzle-orm";
 import { unlink } from "fs/promises";
 
 const app = new Elysia({
-    bodyLimit: 1024 * 1024 * 1024 * 5 // 5GB in bytes
+    bodyLimit: 1024 * 1024 * 1024 * 5, // 5GB in bytes
+    serve: {
+        maxRequestBodySize: 1024 * 1024 * 1024 * 5 // 5GB in bytes
+    }
 })
     .use(cors({
         origin: "http://localhost:5173",

@@ -66,6 +66,17 @@ export default function PropertiesModal({
     return "bg-slate-100";
   };
 
+  const formatFileSize = (size: string | number) => {
+    if (typeof size === "string" && /[a-zA-Z]/.test(size)) return size;
+    const bytes = typeof size === "number" ? size : parseFloat(size);
+    if (isNaN(bytes)) return String(size);
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 animate-in zoom-in-95">
@@ -98,7 +109,7 @@ export default function PropertiesModal({
           </div>
           <div className="flex justify-between border-b pb-2">
             <span className="text-slate-500">Size</span>
-            <span className="font-medium text-slate-700">{file.size}</span>
+            <span className="font-medium text-slate-700">{file.isFolder ? "—" : formatFileSize(file.size)}</span>
           </div>
           <div className="flex justify-between border-b pb-2">
             <span className="text-slate-500">Created</span>

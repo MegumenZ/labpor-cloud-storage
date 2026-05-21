@@ -2,7 +2,7 @@ export interface FileItem {
   id: string;
   name: string;
   type: string;
-  size: string;
+  size: string | number;
   createdAt: string;
   isFolder: boolean;
   parentId: string | null;

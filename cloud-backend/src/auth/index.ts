@@ -52,7 +52,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
     )
     .post(
         "/login",
-        async ({ body, jwt, set }) => {
+        async ({ body, jwt, set, cookie }) => {
             const { username, password } = body;
 
             const [user] = await db.select().from(users).where(eq(users.username, username));
@@ -71,6 +71,16 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             const token = await jwt.sign({
                 id: user.id,
                 username: user.username,
+            });
+
+            // Set secure HttpOnly session cookie
+            cookie.token.set({
+                value: token,
+                httpOnly: true,
+                path: "/",
+                secure: false, // set to true if running over HTTPS
+                sameSite: "lax",
+                maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
             });
 
             return {
@@ -92,13 +102,21 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             }),
         }
     )
-    .get("/me", async ({ jwt, set, headers }) => {
-        const authHeader = headers["authorization"];
-        if (!authHeader) {
+    .post("/logout", async ({ cookie }) => {
+        cookie.token.remove();
+        return { success: true, message: "Logged out successfully" };
+    })
+    .get("/me", async ({ jwt, set, headers, cookie }) => {
+        let token = cookie.token?.value;
+        if (!token) {
+            const authHeader = headers["authorization"];
+            if (authHeader) token = authHeader.split(" ")[1];
+        }
+
+        if (!token) {
             set.status = 401;
             return { message: "Unauthorized" };
         }
-        const token = authHeader.split(" ")[1];
         const profile = await jwt.verify(token);
 
         if (!profile) {
@@ -114,26 +132,17 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             return { message: "User not found" };
         }
 
-        // Helper to parse size string to bytes
-        const parseSize = (sizeStr: string): number => {
-            if (!sizeStr) return 0;
-            const str = sizeStr.toString().toUpperCase();
-            const num = parseFloat(str);
-            if (isNaN(num)) return 0;
+        // High Performance Database-level Aggregation
+        const [storageResult] = await db
+            .select({
+                totalFiles: sql<number>`count(${files.id})::int`,
+                usedStorage: sql`coalesce(sum(${files.size}), 0)`,
+            })
+            .from(files)
+            .where(eq(files.userId, user.id));
 
-            if (str.includes("GB")) return num * 1024 * 1024 * 1024;
-            if (str.includes("MB")) return num * 1024 * 1024;
-            if (str.includes("KB")) return num * 1024;
-            return num; // Assumes bytes if no unit
-        };
-
-        // Fetch all files for user to calculate storage in JS
-        const userFiles = await db.select({ size: files.size }).from(files).where(eq(files.userId, user.id));
-
-        const totalFiles = userFiles.length;
-        const usedStorage = userFiles.reduce((acc, file) => {
-            return acc + parseSize(file.size);
-        }, 0);
+        const totalFiles = storageResult?.totalFiles || 0;
+        const usedStorage = Number(storageResult?.usedStorage || 0);
 
         return {
             authenticated: true,
@@ -149,13 +158,17 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             }
         };
     })
-    .get("/profile", async ({ jwt, set, headers, request }) => {
-        const authHeader = headers["authorization"];
-        if (!authHeader) {
+    .get("/profile", async ({ jwt, set, headers, cookie, request }) => {
+        let token = cookie.token?.value;
+        if (!token) {
+            const authHeader = headers["authorization"];
+            if (authHeader) token = authHeader.split(" ")[1];
+        }
+
+        if (!token) {
             set.status = 401;
             return { message: "Unauthorized" };
         }
-        const token = authHeader.split(" ")[1];
         const profile = await jwt.verify(token);
 
         if (!profile) {
@@ -171,26 +184,17 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             return { message: "User not found" };
         }
 
-        // Helper to parse size string to bytes
-        const parseSize = (sizeStr: string): number => {
-            if (!sizeStr) return 0;
-            const str = sizeStr.toString().toUpperCase();
-            const num = parseFloat(str);
-            if (isNaN(num)) return 0;
+        // High Performance Database-level Aggregation
+        const [storageResult] = await db
+            .select({
+                totalFiles: sql<number>`count(${files.id})::int`,
+                usedStorage: sql`coalesce(sum(${files.size}), 0)`,
+            })
+            .from(files)
+            .where(eq(files.userId, user.id));
 
-            if (str.includes("GB")) return num * 1024 * 1024 * 1024;
-            if (str.includes("MB")) return num * 1024 * 1024;
-            if (str.includes("KB")) return num * 1024;
-            return num; // Assumes bytes if no unit
-        };
-
-        // Fetch all files for user to calculate storage in JS
-        const userFiles = await db.select({ size: files.size }).from(files).where(eq(files.userId, user.id));
-
-        const totalFiles = userFiles.length;
-        const usedStorage = userFiles.reduce((acc, file) => {
-            return acc + parseSize(file.size);
-        }, 0);
+        const totalFiles = storageResult?.totalFiles || 0;
+        const usedStorage = Number(storageResult?.usedStorage || 0);
 
         const baseUrl = new URL(request.url).origin;
         const avatar = user.avatar;
@@ -209,13 +213,17 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             storageLimit: 1024 * 1024 * 1024 * 5,
         };
     })
-    .put("/profile", async ({ body, jwt, set, headers }) => {
-        const authHeader = headers["authorization"];
-        if (!authHeader) {
+    .put("/profile", async ({ body, jwt, set, headers, cookie }) => {
+        let token = cookie.token?.value;
+        if (!token) {
+            const authHeader = headers["authorization"];
+            if (authHeader) token = authHeader.split(" ")[1];
+        }
+
+        if (!token) {
             set.status = 401;
             return { message: "Unauthorized" };
         }
-        const token = authHeader.split(" ")[1];
         const profile = await jwt.verify(token);
 
         if (!profile) {

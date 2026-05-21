@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Cloud, LayoutGrid, ChevronRight } from "lucide-react";
+import { Cloud, FolderInput, Trash2, Download, X } from "lucide-react";
 import Login from "./Login";
 import api from "./api";
 import type { FileItem } from "./types";
@@ -8,6 +8,7 @@ import type { FileItem } from "./types";
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
 import { FileGrid } from "./components/FileGrid";
+import Breadcrumbs from "./components/Breadcrumbs";
 import PreviewModal from "./components/modals/PreviewModal";
 import MoveModal from "./components/modals/MoveModal";
 import DeleteModal from "./components/modals/DeleteModal";
@@ -36,9 +37,12 @@ function App() {
   // Modal States
   const [fileToDelete, setFileToDelete] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
-  const [fileToMove, setFileToMove] = useState<FileItem | null>(null);
+  const [filesToMove, setFilesToMove] = useState<FileItem[]>([]);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [fileProperties, setFileProperties] = useState<FileItem | null>(null);
+
+  // Multi-Select States
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const [isDragging, setIsDragging] = useState(false);
 
@@ -49,12 +53,6 @@ function App() {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const token = localStorage.getItem("token");
-      if (!token) {
-        setIsAuthenticated(false);
-        setAuthLoading(false);
-        return;
-      }
       api
         .get("/auth/me")
         .then((res) => {
@@ -89,7 +87,7 @@ function App() {
     if (!isAuthenticated) return;
     setLoading(true);
     try {
-      const params: any = {};
+      const params: Record<string, string> = {};
       if (searchQuery) {
         params.search = searchQuery;
       } else if (viewMode === "trash") {
@@ -109,7 +107,7 @@ function App() {
 
   useEffect(() => {
     if (isAuthenticated) fetchFiles();
-  }, [isAuthenticated, currentFolderId, searchQuery, viewMode]);
+  }, [fetchFiles, isAuthenticated]);
 
   // --- HANDLERS ---
   const performUpload = async (file: globalThis.File) => {
@@ -130,8 +128,8 @@ function App() {
       });
       const newFile = { ...res.data.data, previewUrl: tempUrl };
       setFiles((prev) => [newFile, ...prev]);
-    } catch (err: any) {
-      const message = err.response?.data?.message || "Upload failed";
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } }).response?.data?.message || "Upload failed";
       alert(message);
     }
   };
@@ -200,7 +198,102 @@ function App() {
   };
 
   const prepareMove = (file: FileItem) => {
-    setFileToMove(file);
+    setFilesToMove([file]);
+  };
+
+  // Selection & Bulk Handlers
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const allInFolder = files.map((f) => f.id);
+      const allSelected = allInFolder.every((id) => prev.has(id));
+      const next = new Set(prev);
+      if (allSelected) {
+        allInFolder.forEach((id) => next.delete(id));
+      } else {
+        allInFolder.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleClearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  useEffect(() => {
+    handleClearSelection();
+  }, [currentFolderId, viewMode, searchQuery]);
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    const isPermanent = viewMode === "trash";
+    const confirmMsg = isPermanent
+      ? `Are you sure you want to permanently delete the ${selectedIds.size} selected items?`
+      : `Move the ${selectedIds.size} selected items to trash?`;
+
+    if (confirm(confirmMsg)) {
+      setLoading(true);
+      try {
+        await Promise.all(
+          Array.from(selectedIds).map((id) =>
+            api.delete(`/files/${id}`, { params: { permanent: isPermanent } })
+          )
+        );
+        handleClearSelection();
+        fetchFiles();
+      } catch {
+        alert("Some files failed to delete.");
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleBulkDownload = async () => {
+    const selectedFiles = files.filter(f => selectedIds.has(f.id));
+    const selectedOnlyFiles = selectedFiles.filter(f => !f.isFolder);
+    const folderCount = selectedFiles.length - selectedOnlyFiles.length;
+
+    if (selectedOnlyFiles.length === 0) {
+      alert("No files selected to download (folders cannot be downloaded directly).");
+      return;
+    }
+
+    if (folderCount > 0) {
+      alert(`Note: ${folderCount} folder(s) will be skipped from download.`);
+    }
+
+    // Trigger downloads sequentially to prevent popup blocker blocking them
+    for (let i = 0; i < selectedOnlyFiles.length; i++) {
+      const f = selectedOnlyFiles[i];
+      try {
+        const res = await api.get(`/files/${f.id}/download`, {
+          responseType: "blob",
+        });
+        const url = window.URL.createObjectURL(new Blob([res.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", f.name);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      } catch (err) {
+        console.error(`Failed to download ${f.name}:`, err);
+      }
+    }
   };
 
   // Navigation Handlers
@@ -297,11 +390,14 @@ function App() {
           onClose={() => setSelectedFile(null)}
         />
       )}
-      {fileToMove && (
+      {filesToMove.length > 0 && (
         <MoveModal
-          file={fileToMove}
-          onClose={() => setFileToMove(null)}
-          onMoveSuccess={fetchFiles}
+          files={filesToMove}
+          onClose={() => setFilesToMove([])}
+          onMoveSuccess={() => {
+            fetchFiles();
+            handleClearSelection();
+          }}
         />
       )}
       {fileToDelete && (
@@ -320,7 +416,7 @@ function App() {
       {showProfileModal && (
         <ProfileModal
           onClose={() => setShowProfileModal(false)}
-          onUpdate={(updatedUser: any) => {
+          onUpdate={(updatedUser: { username?: string; displayName?: string | null; avatar?: string | null }) => {
             if (updatedUser?.username) {
               setCurrentUser(updatedUser.username);
             }
@@ -376,28 +472,10 @@ function App() {
         <div className="flex-1 p-6">
           {/* Breadcrumb (Only show in 'files' mode) */}
           {viewMode === "files" && (
-            <div className="flex items-center gap-2 mb-6 text-sm text-slate-500">
-              <button
-                onClick={() => handleNavigate(null)}
-                className="hover:text-blue-600 transition-colors flex items-center gap-1"
-              >
-                <LayoutGrid size={16} /> Home
-              </button>
-              {folderStack.map((folder, index) => (
-                <div key={folder.id} className="flex items-center gap-2">
-                  <ChevronRight size={16} className="text-slate-300" />
-                  <button
-                    onClick={() => handleNavigate(folder.id)}
-                    className={`hover:text-blue-600 transition-colors ${index === folderStack.length - 1
-                      ? "font-semibold text-slate-900"
-                      : ""
-                      }`}
-                  >
-                    {folder.name}
-                  </button>
-                </div>
-              ))}
-            </div>
+            <Breadcrumbs
+              items={folderStack}
+              onNavigate={handleNavigate}
+            />
           )}
 
           <FileGrid
@@ -412,9 +490,50 @@ function App() {
             onDelete={handleDeleteRequest}
             onRestore={handleRestore}
             isTrash={viewMode === "trash"}
+            selectedIds={selectedIds}
+            onToggleSelect={handleToggleSelect}
+            onToggleSelectAll={handleToggleSelectAll}
           />
         </div>
       </main>
+
+      {/* BULK ACTIONS FLOATING TOOLBAR */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200/80 px-6 py-3.5 rounded-2xl flex items-center gap-6 z-50 animate-in slide-in-from-bottom-5 duration-300">
+          <div className="text-sm font-semibold text-slate-700 select-none border-r pr-4 border-slate-200">
+            {selectedIds.size} selected
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setFilesToMove(files.filter(f => selectedIds.has(f.id)))}
+              className="px-4 py-2 hover:bg-slate-100 rounded-xl text-sm font-semibold text-slate-600 hover:text-slate-800 transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <FolderInput size={16} /> Move
+            </button>
+            {viewMode === "files" && (
+              <button
+                onClick={handleBulkDownload}
+                className="px-4 py-2 hover:bg-slate-100 rounded-xl text-sm font-semibold text-slate-600 hover:text-slate-800 transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <Download size={16} /> Download
+              </button>
+            )}
+            <button
+              onClick={handleBulkDelete}
+              className="px-4 py-2 hover:bg-red-50 rounded-xl text-sm font-semibold text-red-600 hover:text-red-700 transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <Trash2 size={16} /> Delete
+            </button>
+          </div>
+          <button
+            onClick={handleClearSelection}
+            className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+            title="Clear Selection"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

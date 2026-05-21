@@ -29,14 +29,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           setIsRegister(false);
           setError("Registration successful! Please login.");
         } else {
-          localStorage.setItem("token", response.data.token);
           onLoginSuccess(response.data.username);
         }
       }
     } catch (err) {
-      // PERBAIKAN: Casting err as any agar ESLint tidak marah
       const errorMsg =
-        (err as any).response?.data?.message || "Something went wrong";
+        (err as { response?: { data?: { message?: string } } }).response?.data?.message ||
+        "Something went wrong";
       setError(errorMsg);
     } finally {
       setLoading(false);
