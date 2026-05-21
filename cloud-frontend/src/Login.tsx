@@ -10,6 +10,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [isRegister, setIsRegister] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,7 +21,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
     try {
       const endpoint = isRegister ? "/auth/register" : "/auth/login";
-      const response = await api.post(endpoint, { username, password });
+      const payload = isRegister ? { username, password, displayName } : { username, password };
+      const response = await api.post(endpoint, payload);
 
       if (response.data.success) {
         if (isRegister) {
@@ -74,6 +76,28 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {isRegister && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase">
+                  Display Name
+                </label>
+                <div className="relative">
+                  <User
+                    className="absolute left-3 top-3 text-slate-400"
+                    size={20}
+                  />
+                  <input
+                    type="text"
+                    required
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                    placeholder="Enter your name"
+                  />
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase">
                 Username

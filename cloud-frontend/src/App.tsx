@@ -67,8 +67,11 @@ function App() {
               limit: res.data.user.storageLimit || 0,
             });
             if (res.data.user.avatar) {
+              const avatar = res.data.user.avatar;
               setUserAvatar(
-                `${api.defaults.baseURL}/uploads/avatars/${res.data.user.avatar}`
+                avatar.startsWith("http")
+                  ? avatar
+                  : `${api.defaults.baseURL}/uploads/avatars/${avatar}`
               );
             }
           }
@@ -110,6 +113,12 @@ function App() {
 
   // --- HANDLERS ---
   const performUpload = async (file: globalThis.File) => {
+    // Frontend validation (5GB limit for large Ceph uploads)
+    const MAX_SIZE = 5 * 1024 * 1024 * 1024; // 5GB
+    if (file.size > MAX_SIZE) {
+      alert("File size exceeds the 5GB limit!");
+      return;
+    }
     const tempUrl = URL.createObjectURL(file);
     const formData = new FormData();
     formData.append("file", file);
@@ -267,8 +276,11 @@ function App() {
               limit: res.data.user.storageLimit || 0,
             });
             if (res.data.user.avatar) {
+              const avatar = res.data.user.avatar;
               setUserAvatar(
-                `${api.defaults.baseURL}/uploads/avatars/${res.data.user.avatar}`
+                avatar.startsWith("http")
+                  ? avatar
+                  : `${api.defaults.baseURL}/uploads/avatars/${avatar}`
               );
             }
           });
@@ -361,7 +373,7 @@ function App() {
           onEmptyTrash={handleEmptyTrash}
         />
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 p-6">
           {/* Breadcrumb (Only show in 'files' mode) */}
           {viewMode === "files" && (
             <div className="flex items-center gap-2 mb-6 text-sm text-slate-500">

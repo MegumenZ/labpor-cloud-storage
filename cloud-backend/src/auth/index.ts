@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { jwt } from "@elysiajs/jwt";
 import { db, users, files } from "../db";
 import { eq, sql } from "drizzle-orm";
+import { unlink } from "fs/promises";
 
 export const authRoutes = new Elysia({ prefix: "/auth" })
     .use(
@@ -238,6 +239,16 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 return { message: "Avatar size must be under 2MB" };
             }
         }
+
+        // Get old avatar before updating database
+        let oldAvatar: string | null = null;
+        if (avatar) {
+            const [currentUser] = await db.select({ avatar: users.avatar }).from(users).where(eq(users.id, profile.id as string));
+            if (currentUser && currentUser.avatar) {
+                oldAvatar = currentUser.avatar;
+            }
+        }
+
         const updateData: any = { displayName };
 
         if (avatar) {
@@ -245,6 +256,16 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
             await Bun.write(`uploads/avatars/${fileName}`, avatar);
             updateData.avatar = fileName;
+
+            // Delete old physical avatar file if it was a local file
+            if (oldAvatar && !oldAvatar.startsWith("http")) {
+                try {
+                    await unlink(`uploads/avatars/${oldAvatar}`);
+                    console.log(`Deleted old physical avatar: uploads/avatars/${oldAvatar}`);
+                } catch (err: any) {
+                    console.error(`Failed to delete old physical avatar ${oldAvatar}:`, err.message);
+                }
+            }
         }
 
         const [updatedUser] = await db.update(users)
