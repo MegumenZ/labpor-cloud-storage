@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 interface DeleteModalProps {
   onConfirm: () => void;
   onCancel: () => void;
+  isPermanent?: boolean;
 }
 
-export default function DeleteModal({ onConfirm, onCancel }: DeleteModalProps) {
+export default function DeleteModal({ onConfirm, onCancel, isPermanent = false }: DeleteModalProps) {
   return (
     <DialogContent className="sm:max-w-[400px] border border-border/80 shadow-2xl rounded-2xl p-6 bg-popover text-popover-foreground animate-in zoom-in-95 duration-200">
       <DialogHeader className="flex flex-col items-center gap-3">
@@ -15,10 +16,12 @@ export default function DeleteModal({ onConfirm, onCancel }: DeleteModalProps) {
           <AlertTriangle size={24} />
         </div>
         <DialogTitle className="text-xl font-bold text-center text-foreground">
-          Hapus Item?
+          {isPermanent ? "Hapus Permanen?" : "Pindahkan ke Trash?"}
         </DialogTitle>
         <DialogDescription className="text-muted-foreground text-center text-sm leading-relaxed">
-          Apakah Anda yakin ingin menghapus item ini? Tindakan ini tidak dapat dibatalkan dan data akan hilang secara permanen.
+          {isPermanent
+            ? "Apakah Anda yakin ingin menghapus item ini secara permanen? Tindakan ini tidak dapat dibatalkan."
+            : "Apakah Anda yakin ingin memindahkan item ini ke Trash? Anda masih dapat memulihkannya nanti."}
         </DialogDescription>
       </DialogHeader>
 
@@ -34,7 +37,7 @@ export default function DeleteModal({ onConfirm, onCancel }: DeleteModalProps) {
           onClick={onConfirm}
           className="flex-1 py-5 rounded-xl font-semibold bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-md shadow-destructive/10 transition-all cursor-pointer"
         >
-          Hapus Permanen
+          {isPermanent ? "Hapus Permanen" : "Pindahkan"}
         </Button>
       </DialogFooter>
     </DialogContent>

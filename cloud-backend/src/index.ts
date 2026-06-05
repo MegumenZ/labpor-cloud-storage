@@ -6,12 +6,12 @@ import { authRoutes } from "./auth";
 import { filesRoutes } from "./files";
 import { usersRoutes } from "./users";
 import { AuthenticationError, authPlugin } from "./auth/middleware";
+import { writeLog } from "./utils/logger";
+import { mkdir } from "fs/promises";
+import { autoDeleteTrash } from "./cron/autoDeleteTrash";
 
-import { cron } from "@elysiajs/cron";
-import { db, files } from "./db";
-import { eq, lt, and, inArray } from "drizzle-orm";
-import { unlink } from "fs/promises";
-import { getAllDescendants } from "./files";
+// Ensure local uploads directory exists for static assets (e.g. avatars) to avoid ENOENT crashes
+await mkdir("uploads/avatars", { recursive: true });
 
 const app = new Elysia({
     serve: {
@@ -23,94 +23,75 @@ const app = new Elysia({
         credentials: true,
     }))
     .use(authPlugin)
+    .derive((c) => {
+        return {
+            startTime: Date.now()
+        };
+    })
+    .onAfterResponse(async ({ request, set, startTime }) => {
+        const elapsed = Date.now() - startTime;
+        const url = new URL(request.url);
+        
+        // Skip log untuk swagger, root hello, atau static uploads jika dirasa terlalu berisik
+        if (url.pathname.startsWith("/swagger") || url.pathname === "/" || url.pathname.startsWith("/uploads")) return;
+
+        const rawIp = request.headers.get("x-forwarded-for") || "127.0.0.1";
+        const ip = rawIp.split(",")[0].trim();
+        const userAgent = request.headers.get("user-agent") || undefined;
+
+        await writeLog("INFO", "HTTP", `HTTP Request: ${request.method} ${url.pathname}`, {
+            ip,
+            elapsedMs: elapsed,
+            metadata: {
+                method: request.method,
+                path: url.pathname,
+                status: set.status,
+                userAgent
+            }
+        });
+    })
     .use(swagger())
     .use(staticPlugin({
         assets: "uploads",
         prefix: "/uploads"
     }))
-    .use(
-        cron({
-            name: "auto-delete-trash",
-            pattern: "0 0 * * *", // Run every day at midnight
-            async run() {
-                const thirtyDaysAgo = new Date();
-                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-                console.log("Running auto-deletion job...");
-
-                // 1. Get all root files/folders targeted for deletion
-                const rootItemsToDelete = await db.select()
-                    .from(files)
-                    .where(
-                        and(
-                            eq(files.isDeleted, true),
-                            lt(files.deletedAt, thirtyDaysAgo)
-                        )
-                    );
-
-                if (rootItemsToDelete.length > 0) {
-                    const allTargetIds = new Set<string>();
-                    const physicalFilesToDelete = new Set<string>();
-
-                    for (const item of rootItemsToDelete) {
-                        allTargetIds.add(item.id);
-                        if (!item.isFolder && item.storagePath) {
-                            physicalFilesToDelete.add(item.storagePath);
-                        }
-
-                        // Collect descendants recursively if it's a folder
-                        if (item.isFolder) {
-                            const descendants = await getAllDescendants(item.id, item.userId);
-                            for (const d of descendants) {
-                                allTargetIds.add(d.id);
-                                if (!d.isFolder && d.storagePath) {
-                                    physicalFilesToDelete.add(d.storagePath);
-                                }
-                            }
-                        }
-                    }
-
-                    // 2. Unlink physical files on disk
-                    for (const storagePath of physicalFilesToDelete) {
-                        try {
-                            const path = `uploads/${storagePath}`;
-                            await unlink(path);
-                            console.log(`Successfully auto-deleted physical file: ${path}`);
-                        } catch (err: any) {
-                            console.error(`Failed to auto-delete physical file ${storagePath}:`, err.message);
-                        }
-                    }
-
-                    const targetIdsArray = Array.from(allTargetIds);
-
-                    if (targetIdsArray.length > 0) {
-                        // 3. Temporarily set parentId to null to avoid FK constraint violations
-                        await db.update(files)
-                            .set({ parentId: null })
-                            .where(inArray(files.id, targetIdsArray));
-
-                        // 4. Delete records from database
-                        const deletedResult = await db.delete(files)
-                            .where(inArray(files.id, targetIdsArray))
-                            .returning();
-
-                        console.log(`Auto-deleted ${deletedResult.length} file/folder records from database.`);
-                    }
-                } else {
-                    console.log("No files/folders to delete.");
-                }
-            }
-        })
-    )
+    .use(autoDeleteTrash)
     .use(authRoutes)
     .use(filesRoutes)
     .use(usersRoutes)
-    .onError(({ error, set }) => {
+    .onError(async ({ error, set, code, request }) => {
+        const rawIp = request.headers.get("x-forwarded-for") || "127.0.0.1";
+        const ip = rawIp.split(",")[0].trim();
+        
+        if (code === "VALIDATION") {
+            await writeLog("WARN", "SYSTEM", `Validation failure: ${error.message}`, {
+                ip,
+                metadata: {
+                    errors: (error as any).all
+                }
+            });
+            set.status = 400;
+            return { message: error.message, errors: (error as any).all };
+        }
+        
         if (error instanceof AuthenticationError) {
+            await writeLog("WARN", "AUTH", `Authentication failed: ${error.message}`, { ip });
             set.status = 401;
             return { message: error.message };
         }
-        console.error("Unhandled server error:", error);
+
+        // Log unhandled server errors as ERROR level
+        await writeLog("ERROR", "ERROR", `Unhandled server error: ${error.message}`, {
+            ip,
+            errorStack: error.stack
+        });
+
+        if (code === "NOT_FOUND") {
+            set.status = 404;
+            return { message: "Not Found" };
+        }
+
+        set.status = 500;
         return { message: "Internal Server Error" };
     })
     .get("/", () => "Hello Elysia")

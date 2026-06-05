@@ -9,6 +9,7 @@ import {
   FileType,
 } from "lucide-react";
 import type { FileItem } from "../../types";
+import CustomVideoPlayer from "../ui/CustomVideoPlayer";
 import DocViewer, { DocViewerRenderers } from "@cyntler/react-doc-viewer";
 import mammoth from "mammoth";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
@@ -56,6 +57,10 @@ interface PreviewModalProps {
 }
 
 export default function PreviewModal({ file }: PreviewModalProps) {
+  const t = file.type.toLowerCase();
+  const e = file.name.split(".").pop()?.toLowerCase() || "";
+  const isMedia = t.includes("video") || t.includes("audio") || ["mp4", "mkv", "webm", "mp3", "wav"].includes(e);
+
   const getIcon = (f: FileItem) => {
     const t = f.type.toLowerCase();
     const e = f.name.split(".").pop()?.toLowerCase() || "";
@@ -95,11 +100,11 @@ export default function PreviewModal({ file }: PreviewModalProps) {
       ["jpg", "jpeg", "png", "gif", "webp", "svg"].includes(e)
     )
       return (
-        <div className="w-full h-full flex items-center justify-center p-2">
+        <div className="w-full h-auto flex items-center justify-center">
           <img
             src={url}
             alt="Preview Berkas"
-            className="max-w-full max-h-[72vh] object-contain rounded-lg shadow-sm border border-border"
+            className="max-w-full max-h-[70vh] object-contain select-none shadow-2xl"
           />
         </div>
       );
@@ -107,11 +112,8 @@ export default function PreviewModal({ file }: PreviewModalProps) {
     // VIDEO
     if (t.includes("video") || ["mp4", "mkv", "webm"].includes(e))
       return (
-        <div className="w-full h-full flex items-center justify-center bg-slate-950 p-1 rounded-xl overflow-hidden shadow-inner">
-          <video controls autoPlay className="w-full max-h-[72vh] bg-black">
-            <source src={url} />
-            Browser Anda tidak mendukung penayangan video.
-          </video>
+        <div className="w-full h-full flex items-center justify-center bg-background overflow-hidden">
+          <CustomVideoPlayer src={url} name={name} downloadUrl={file.downloadUrl} />
         </div>
       );
 
@@ -155,9 +157,13 @@ export default function PreviewModal({ file }: PreviewModalProps) {
   };
 
   return (
-    <DialogContent className="max-w-5xl w-[95vw] h-[90vh] p-0 overflow-hidden flex flex-col bg-popover border border-border shadow-2xl rounded-2xl animate-in zoom-in-95 duration-200">
+    <DialogContent className={`p-0 overflow-hidden flex flex-col bg-popover text-foreground border border-border shadow-2xl rounded-2xl animate-in zoom-in-95 duration-200 ${
+      isMedia 
+        ? "w-fit max-w-[95vw] md:max-w-4xl h-auto my-auto" 
+        : "max-w-5xl w-[95vw] h-[90vh]"
+    }`}>
       {/* HEADER PREVIEW */}
-      <div className="p-4 border-b border-border flex justify-between items-center bg-popover shrink-0 select-none">
+      <div className="p-4 border-b border-border flex justify-between items-center bg-popover text-foreground shrink-0 select-none">
         <div className="flex items-center gap-3.5 min-w-0 pr-6">
           {getIcon(file)}
           <div className="min-w-0">
@@ -172,8 +178,12 @@ export default function PreviewModal({ file }: PreviewModalProps) {
       </div>
 
       {/* PREVIEW CONTAINER */}
-      <div className="flex-1 bg-muted/30 p-4 overflow-auto flex items-center justify-center">
-        <div className="w-full h-full flex items-center justify-center">
+      <div className={`transition-colors flex items-center justify-center ${
+        isMedia 
+          ? "bg-background p-0 w-full h-auto overflow-hidden" 
+          : "flex-1 bg-muted/30 p-4 w-full h-full overflow-auto"
+      }`}>
+        <div className={isMedia ? "w-full h-auto flex items-center justify-center" : "w-full h-full flex items-center justify-center"}>
           {renderContent()}
         </div>
       </div>

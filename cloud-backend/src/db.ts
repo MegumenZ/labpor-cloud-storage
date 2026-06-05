@@ -57,9 +57,13 @@ export const files = pgTable("files", {
   // Soft Delete
   isDeleted: boolean("is_deleted").default(false),
   deletedAt: timestamp("deleted_at"),
+  deletedBy: uuid("deleted_by").references(() => users.id),
 
-  // Favorites
+  // Favorites (deprecating but keeping for schema compatibility)
   isFavorite: boolean("is_favorite").default(false),
+
+  // Collaborative lock status
+  allowEdit: boolean("allow_edit").default(true).notNull(),
 }, (table) => {
   return {
     userIdIdx: index("user_id_idx").on(table.userId),
@@ -70,21 +74,38 @@ export const files = pgTable("files", {
   };
 });
 
-// --- 2. TABEL RATE LIMITS (Persisten & Bebas Biaya) ---
+// --- 2. TABEL USER FAVORITES (Favorit Personal per-User) ---
+export const userFavorites = pgTable("user_favorites", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull(),
+  fileId: uuid("file_id")
+    .references(() => files.id, { onDelete: "cascade" })
+    .notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    userFileIdx: index("user_file_idx").on(table.userId, table.fileId),
+  };
+});
+
+// --- 3. TABEL RATE LIMITS (Persisten & Bebas Biaya) ---
 export const rateLimits = pgTable("rate_limits", {
   ip: text("ip").primaryKey(),
   count: integer("count").notNull(),
   resetAt: timestamp("reset_at").notNull(),
 });
 
-// --- 3. DEFINISI RELASI (Agar Drizzle pintar saat query) ---
+// --- 4. DEFINISI RELASI (Agar Drizzle pintar saat query) ---
 
-// Satu User punya BANYAK File
+// Satu User punya BANYAK File & BANYAK Favorite
 export const usersRelations = relations(users, ({ many }) => ({
   files: many(files),
+  favorites: many(userFavorites),
 }));
 
-// Satu File punya SATU User & SATU Parent Folder
+// Satu File punya SATU User, SATU Parent Folder, dan BANYAK Favorite
 export const filesRelations = relations(files, ({ one, many }) => ({
   owner: one(users, {
     fields: [files.userId],
@@ -97,5 +118,18 @@ export const filesRelations = relations(files, ({ one, many }) => ({
   }),
   children: many(files, {
     relationName: "parent_child",
+  }),
+  favorites: many(userFavorites),
+}));
+
+// Hubungan jembatan Favorite menghubungkan User dan File
+export const userFavoritesRelations = relations(userFavorites, ({ one }) => ({
+  user: one(users, {
+    fields: [userFavorites.userId],
+    references: [users.id],
+  }),
+  file: one(files, {
+    fields: [userFavorites.fileId],
+    references: [files.id],
   }),
 }));

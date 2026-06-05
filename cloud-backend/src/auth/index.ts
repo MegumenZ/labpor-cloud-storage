@@ -1,8 +1,11 @@
 import { Elysia, t } from "elysia";
 import { db, users, files } from "../db";
-import { eq, sql } from "drizzle-orm";
-import { unlink } from "fs/promises";
+import { eq, sql, and } from "drizzle-orm";
 import { authPlugin, requireAuth, createRateLimiter } from "./middleware";
+import { s3, BUCKET_NAME } from "../files/s3";
+import { PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { writeLog } from "../utils/logger";
+import { getAvatarUrl, getCephCapacity, checkStorageOnline } from "../utils/ceph";
 
 export const authRoutes = new Elysia({ prefix: "/auth" })
     .use(authPlugin)
@@ -49,18 +52,22 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
     )
     .post(
         "/login",
-        async ({ body, jwtPlugin, set, cookie }) => {
+        async ({ body, jwtPlugin, set, cookie, request }) => {
             const { username, password } = body;
+            const rawIp = request.headers.get("x-forwarded-for") || "127.0.0.1";
+            const ip = rawIp.split(",")[0].trim();
 
             const [user] = await db.select().from(users).where(eq(users.username, username));
 
             if (!user) {
+                await writeLog("WARN", "AUTH", `Login failed: user not found: ${username}`, { ip });
                 set.status = 401;
                 return { message: "Invalid credentials" };
             }
 
             const isMatch = await Bun.password.verify(password, user.password);
             if (!isMatch) {
+                await writeLog("WARN", "AUTH", `Login failed: incorrect password for user: ${username}`, { ip, userId: user.id });
                 set.status = 401;
                 return { message: "Invalid credentials" };
             }
@@ -78,6 +85,11 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 secure: process.env.NODE_ENV === "production",
                 sameSite: "lax",
                 maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
+            });
+
+            await writeLog("INFO", "AUTH", `Successful login for user: ${username}`, {
+                userId: user.id,
+                ip
             });
 
             return {
@@ -117,17 +129,24 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             return { message: "User not found" };
         }
 
-        // High Performance Database-level Aggregation
-        const [storageResult] = await db
+        // High Performance Database-level Aggregation (Total files uploaded by this user)
+        const [userFilesResult] = await db
             .select({
                 totalFiles: sql<number>`count(${files.id})::int`,
+            })
+            .from(files)
+            .where(and(eq(files.userId, user.id), eq(files.isDeleted, false)));
+
+        // Total storage used collectively by all non-deleted files in the system
+        const [systemStorageResult] = await db
+            .select({
                 usedStorage: sql`coalesce(sum(${files.size}), 0)`,
             })
             .from(files)
-            .where(eq(files.userId, user.id));
+            .where(eq(files.isDeleted, false));
 
-        const totalFiles = storageResult?.totalFiles || 0;
-        const usedStorage = Number(storageResult?.usedStorage || 0);
+        const totalFiles = userFilesResult?.totalFiles || 0;
+        const usedStorage = Number(systemStorageResult?.usedStorage || 0);
 
         return {
             authenticated: true,
@@ -135,11 +154,12 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 id: user.id,
                 username: user.username,
                 displayName: user.displayName,
-                avatar: user.avatar,
+                avatar: await getAvatarUrl(user.avatar),
                 createdAt: user.createdAt,
                 totalFiles: totalFiles,
                 usedStorage: usedStorage,
-                storageLimit: 1024 * 1024 * 1024 * 5, // 5GB
+                storageLimit: await getCephCapacity(),
+                storageOnline: await checkStorageOnline(),
                 themePreference: user.themePreference,
             }
         };
@@ -156,33 +176,35 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             return { message: "User not found" };
         }
 
-        // High Performance Database-level Aggregation
-        const [storageResult] = await db
+        // High Performance Database-level Aggregation (Total files uploaded by this user)
+        const [userFilesResult] = await db
             .select({
                 totalFiles: sql<number>`count(${files.id})::int`,
+            })
+            .from(files)
+            .where(and(eq(files.userId, user.id), eq(files.isDeleted, false)));
+
+        // Total storage used collectively by all non-deleted files in the system
+        const [systemStorageResult] = await db
+            .select({
                 usedStorage: sql`coalesce(sum(${files.size}), 0)`,
             })
             .from(files)
-            .where(eq(files.userId, user.id));
+            .where(eq(files.isDeleted, false));
 
-        const totalFiles = storageResult?.totalFiles || 0;
-        const usedStorage = Number(storageResult?.usedStorage || 0);
-
-        const baseUrl = new URL(request.url).origin;
-        const avatar = user.avatar;
-        const fullAvatar = avatar && !avatar.startsWith("http")
-            ? `${baseUrl}/uploads/avatars/${avatar}`
-            : avatar;
+        const totalFiles = userFilesResult?.totalFiles || 0;
+        const usedStorage = Number(systemStorageResult?.usedStorage || 0);
 
         return {
             id: user.id,
             username: user.username,
             displayName: user.displayName,
-            avatar: fullAvatar,
+            avatar: await getAvatarUrl(user.avatar),
             createdAt: user.createdAt,
             totalFiles: totalFiles,
             usedStorage: usedStorage,
-            storageLimit: 1024 * 1024 * 1024 * 5,
+            storageLimit: await getCephCapacity(),
+            storageOnline: await checkStorageOnline(),
             themePreference: user.themePreference,
         };
     })
@@ -199,11 +221,11 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 return { message: "Avatar must be an image file" };
             }
 
-            // 2. Validasi ukuran (max 2MB)
-            const MAX_SIZE = 2 * 1024 * 1024;
+            // 2. Validasi ukuran (max 10MB)
+            const MAX_SIZE = 10 * 1024 * 1024;
             if (avatar.size > MAX_SIZE) {
                 set.status = 400;
-                return { message: "Avatar size must be under 2MB" };
+                return { message: "Avatar size must be under 10MB" };
             }
         }
 
@@ -220,17 +242,64 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
 
         if (avatar) {
             const extension = avatar.type.split("/")[1];
-            const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
-            await Bun.write(`uploads/avatars/${fileName}`, avatar);
-            updateData.avatar = fileName;
+            const safeFileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
+            const storagePath = `avatars/${safeFileName}`;
 
-            // Delete old physical avatar file if it was a local file
+            try {
+                const uploadStart = Date.now();
+                const arrayBuffer = await avatar.arrayBuffer();
+                const buffer = Buffer.from(arrayBuffer);
+
+                await s3.send(new PutObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: storagePath,
+                    Body: buffer,
+                    ContentType: avatar.type,
+                }));
+                
+                const uploadDuration = Date.now() - uploadStart;
+                await writeLog("INFO", "CEPH", `Successfully uploaded user avatar to Ceph S3: ${storagePath}`, {
+                    userId: profile.id,
+                    elapsedMs: uploadDuration,
+                    metadata: {
+                        bucket: BUCKET_NAME,
+                        key: storagePath,
+                        fileSize: avatar.size,
+                        contentType: avatar.type
+                    }
+                });
+                updateData.avatar = storagePath;
+            } catch (err: any) {
+                await writeLog("ERROR", "CEPH", `Failed to upload user avatar to Ceph S3 ${storagePath}: ${err.message}`, {
+                    userId: profile.id,
+                    errorStack: err.stack
+                });
+                set.status = 500;
+                return { message: "Failed to save profile picture to cloud storage" };
+            }
+
+            // Delete old avatar object from Ceph S3
             if (oldAvatar && !oldAvatar.startsWith("http")) {
                 try {
-                    await unlink(`uploads/avatars/${oldAvatar}`);
-                    console.log(`Deleted old physical avatar: uploads/avatars/${oldAvatar}`);
+                    const deleteStart = Date.now();
+                    await s3.send(new DeleteObjectCommand({
+                        Bucket: BUCKET_NAME,
+                        Key: oldAvatar
+                    }));
+                    const deleteDuration = Date.now() - deleteStart;
+                    await writeLog("INFO", "CEPH", `Deleted old user avatar from Ceph S3: ${oldAvatar}`, {
+                        userId: profile.id,
+                        elapsedMs: deleteDuration,
+                        metadata: {
+                            bucket: BUCKET_NAME,
+                            key: oldAvatar
+                        }
+                    });
                 } catch (err: any) {
-                    console.error(`Failed to delete old physical avatar ${oldAvatar}:`, err.message);
+                    await writeLog("WARN", "CEPH", `Failed to delete old user avatar from Ceph S3 ${oldAvatar}: ${err.message}`, {
+                        userId: profile.id,
+                        errorStack: err.stack
+                    });
                 }
             }
         }
@@ -246,9 +315,14 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 themePreference: users.themePreference
             });
 
+        const returnedUser = {
+            ...updatedUser,
+            avatar: await getAvatarUrl(updatedUser.avatar)
+        };
+
         return {
             success: true,
-            data: updatedUser
+            data: returnedUser
         };
     }, {
         body: t.Object({

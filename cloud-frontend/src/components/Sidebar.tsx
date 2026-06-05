@@ -1,4 +1,4 @@
-import { Cloud, Upload, Plus, LayoutGrid, Clock, Star, Trash2, HardDrive } from "lucide-react";
+import { Cloud, Upload, Plus, LayoutGrid, Clock, Star, Trash2, HardDrive, X } from "lucide-react";
 import { useRef } from "react";
 
 interface SidebarProps {
@@ -12,6 +12,8 @@ interface SidebarProps {
   onCreateFolder: () => void;
   onShowProfile: () => void;
   onChangeView?: (mode: "files" | "trash" | "recent" | "favorites") => void;
+  isStorageOnline?: boolean;
+  onClose?: () => void;
 }
 
 const SidebarItem = ({
@@ -50,6 +52,8 @@ export function Sidebar({
   onCreateFolder,
   onShowProfile,
   onChangeView,
+  isStorageOnline = true,
+  onClose,
 }: SidebarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -64,10 +68,21 @@ export function Sidebar({
   const percentage = storageLimit > 0 ? (storageUsed / storageLimit) * 100 : 0;
 
   return (
-    <aside className="w-64 bg-sidebar border-r border-sidebar-border hidden md:flex md:flex-col shrink-0 sticky top-0 h-screen z-10 select-none">
-      <div className="p-6 flex items-center gap-2 text-sidebar-primary">
-        <Cloud size={32} strokeWidth={2.5} />
-        <span className="text-xl font-extrabold tracking-tight">SkyStore</span>
+    <aside className="w-full h-full bg-sidebar flex flex-col shrink-0 select-none">
+      <div className="p-6 flex items-center justify-between text-sidebar-primary">
+        <div className="flex items-center gap-2">
+          <Cloud size={32} strokeWidth={2.5} />
+          <span className="text-xl font-extrabold tracking-tight">SkyStore</span>
+        </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-sidebar-accent hover:text-sidebar-foreground rounded-lg transition-all cursor-pointer"
+            title="Tutup Menu"
+          >
+            <X size={20} />
+          </button>
+        )}
       </div>
 
       {/* BAGIAN PROFILE YANG BISA DIKLIK */}
@@ -97,13 +112,15 @@ export function Sidebar({
       <div className="px-6 mb-6 space-y-2">
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="w-full bg-primary text-primary-foreground py-3.5 rounded-xl font-bold hover:bg-primary/95 hover:shadow-xl hover:shadow-primary/10 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-primary/5"
+          disabled={!isStorageOnline}
+          className="w-full bg-primary text-primary-foreground py-3.5 rounded-xl font-bold hover:bg-primary/95 hover:shadow-xl hover:shadow-primary/10 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-primary/5 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none"
         >
           <Upload size={20} /> Upload File
         </button>
         <button
           onClick={onCreateFolder}
-          className="w-full bg-card border border-border hover:border-primary/50 hover:text-primary hover:bg-primary/5 text-foreground py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-300 active:scale-[0.98] font-bold cursor-pointer shadow-sm"
+          disabled={!isStorageOnline}
+          className="w-full bg-card border border-border hover:border-primary/50 hover:text-primary hover:bg-primary/5 text-foreground py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-300 active:scale-[0.98] font-bold cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none"
         >
           <Plus size={20} /> New Folder
         </button>

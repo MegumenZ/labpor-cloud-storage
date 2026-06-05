@@ -90,9 +90,7 @@ export default function ProfileModal({ onClose, onUpdate }: ProfileModalProps) {
         formData.append("avatar", avatarFile);
       }
 
-      const res = await api.put("/auth/profile", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const res = await api.put("/auth/profile", formData);
 
       if (res.data.success) {
         const updatedUser = res.data.data;
@@ -102,7 +100,9 @@ export default function ProfileModal({ onClose, onUpdate }: ProfileModalProps) {
         if (onUpdate) {
           const baseUrl = api.defaults.baseURL || "http://localhost:3000";
           const fullAvatarUrl = updatedUser.avatar
-            ? `${baseUrl}/uploads/avatars/${updatedUser.avatar}`
+            ? (updatedUser.avatar.startsWith("http")
+                ? updatedUser.avatar
+                : `${baseUrl}/uploads/avatars/${updatedUser.avatar}`)
             : null;
 
           onUpdate({
@@ -111,9 +111,10 @@ export default function ProfileModal({ onClose, onUpdate }: ProfileModalProps) {
           });
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to update profile", err);
-      alert("Failed to update profile");
+      const serverMessage = err.response?.data?.message || "Failed to update profile";
+      alert(serverMessage);
     } finally {
       setSaving(false);
     }

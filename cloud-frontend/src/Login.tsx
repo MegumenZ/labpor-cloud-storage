@@ -27,7 +27,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       if (response.data.success) {
         if (isRegister) {
           setIsRegister(false);
-          setError("Registration successful! Please login.");
+          setError("Pendaftaran berhasil! Silakan masuk.");
         } else {
           onLoginSuccess(response.data.username);
         }
@@ -35,7 +35,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     } catch (err) {
       const errorMsg =
         (err as { response?: { data?: { message?: string } } }).response?.data?.message ||
-        "Something went wrong";
+        "Terjadi kesalahan pada sistem. Silakan coba kembali.";
       setError(errorMsg);
     } finally {
       setLoading(false);
@@ -66,13 +66,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         {/* Input Form Body */}
         <div className="p-8">
           <h2 className="text-xl font-bold text-white mb-6 text-center">
-            {isRegister ? "Create an Account" : "Welcome Back"}
+            {isRegister ? "Buat Akun Baru" : "Selamat Datang Kembali"}
           </h2>
 
           {error && (
             <div
               className={`p-3 rounded-xl text-sm mb-6 border animate-in fade-in duration-300 ${
-                error.includes("successful")
+                error.includes("berhasil")
                   ? "bg-green-500/10 text-green-300 border-green-500/20"
                   : "bg-red-500/10 text-red-300 border-red-500/20"
               }`}
@@ -85,7 +85,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             {isRegister && (
               <div className="animate-in slide-in-from-top-3 duration-300">
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">
-                  Display Name
+                  Nama Tampilan
                 </label>
                 <div className="relative">
                   <User
@@ -98,7 +98,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 text-white placeholder-slate-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white/10 focus:border-blue-400/50 transition-all duration-300"
-                    placeholder="Enter your name"
+                    placeholder="Masukkan nama Anda"
                   />
                 </div>
               </div>
@@ -119,7 +119,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 text-white placeholder-slate-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white/10 focus:border-blue-400/50 transition-all duration-300"
-                  placeholder="Enter username"
+                  placeholder="Masukkan username"
                 />
               </div>
             </div>
@@ -139,7 +139,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 text-white placeholder-slate-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white/10 focus:border-blue-400/50 transition-all duration-300"
-                  placeholder="Enter password"
+                  placeholder="Masukkan password"
                 />
               </div>
             </div>
@@ -153,14 +153,14 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 <Loader2 className="animate-spin" size={20} />
               ) : (
                 <>
-                  {isRegister ? "Register" : "Login"} <ArrowRight size={18} />
+                  {isRegister ? "Daftar" : "Masuk"} <ArrowRight size={18} />
                 </>
               )}
             </button>
           </form>
 
           <p className="text-center mt-6 text-slate-400 text-sm">
-            {isRegister ? "Already have an account?" : "Don't have an account?"}
+            {isRegister ? "Sudah memiliki akun?" : "Belum memiliki akun?"}
             <button
               onClick={() => {
                 setIsRegister(!isRegister);
@@ -168,7 +168,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               }}
               className="text-blue-400 font-bold ml-1 hover:text-blue-300 transition-colors cursor-pointer"
             >
-              {isRegister ? "Login here" : "Register now"}
+              {isRegister ? "Masuk di sini" : "Daftar sekarang"}
             </button>
           </p>
         </div>
