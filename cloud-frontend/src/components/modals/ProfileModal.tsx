@@ -4,7 +4,6 @@ import {
   Folder,
   Clock,
   Loader2,
-  Info,
   Camera,
   Save,
   Edit2,
@@ -222,11 +221,7 @@ export default function ProfileModal({ onClose, onUpdate }: ProfileModalProps) {
                   day: "numeric",
                 })}
               />
-              <ProfileRow
-                icon={<Info size={18} className="text-slate-400" />}
-                label="User ID"
-                value={profile.id.substring(0, 12) + "..."}
-              />
+
             </div>
           )}
 
