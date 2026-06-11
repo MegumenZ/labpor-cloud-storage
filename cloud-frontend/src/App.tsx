@@ -331,11 +331,9 @@ function App() {
               ? "Trash"
               : viewMode === "favorites"
                 ? "Favorites"
-                : viewMode === "recent"
-                  ? "Recent"
-                  : currentFolderId
-                    ? folderStack[folderStack.length - 1]?.name
-                    : "My Files"
+                : currentFolderId
+                  ? folderStack[folderStack.length - 1]?.name
+                  : "My Files"
           }
           onEmptyTrash={handleEmptyTrash}
         />

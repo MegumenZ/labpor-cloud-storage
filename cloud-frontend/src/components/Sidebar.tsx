@@ -1,4 +1,4 @@
-import { Cloud, Upload, Plus, LayoutGrid, Clock, Star, Trash2, HardDrive, X } from "lucide-react";
+import { Cloud, Upload, Plus, LayoutGrid, Star, Trash2, HardDrive, X } from "lucide-react";
 import { useRef } from "react";
 
 interface SidebarProps {
@@ -7,11 +7,11 @@ interface SidebarProps {
   avatarUrl?: string | null;
   storageUsed: number;
   storageLimit: number;
-  viewMode?: "files" | "trash" | "recent" | "favorites";
+  viewMode?: "files" | "trash" | "favorites";
   onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onCreateFolder: () => void;
   onShowProfile: () => void;
-  onChangeView?: (mode: "files" | "trash" | "recent" | "favorites") => void;
+  onChangeView?: (mode: "files" | "trash" | "favorites") => void;
   isStorageOnline?: boolean;
   onClose?: () => void;
 }
@@ -138,12 +138,6 @@ export function Sidebar({
           label="My Files"
           active={viewMode === "files"}
           onClick={() => onChangeView?.("files")}
-        />
-        <SidebarItem
-          icon={<Clock size={20} />}
-          label="Recent"
-          active={viewMode === "recent"}
-          onClick={() => onChangeView?.("recent")}
         />
         <SidebarItem
           icon={<Star size={20} />}

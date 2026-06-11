@@ -20,7 +20,7 @@ export function useFiles(
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [folderStack, setFolderStack] = useState<{ id: string; name: string }[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<"files" | "trash" | "recent" | "favorites">("files");
+  const [viewMode, setViewMode] = useState<"files" | "trash" | "favorites">("files");
 
   // Selection States
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -61,8 +61,6 @@ export function useFiles(
         params.trash = "true";
       } else if (viewMode === "favorites") {
         params.favorite = "true";
-      } else if (viewMode === "recent") {
-        params.recent = "true";
       }
 
       if (searchQuery) {
@@ -70,7 +68,6 @@ export function useFiles(
       } else if (
         viewMode !== "trash" &&
         viewMode !== "favorites" &&
-        viewMode !== "recent" &&
         currentFolderId
       ) {
         params.folderId = currentFolderId;
@@ -339,7 +336,7 @@ export function useFiles(
     }
   };
 
-  const handleChangeView = (mode: "files" | "trash" | "recent" | "favorites") => {
+  const handleChangeView = (mode: "files" | "trash" | "favorites") => {
     setViewMode(mode);
     if (mode !== "files") {
       setCurrentFolderId(null);
