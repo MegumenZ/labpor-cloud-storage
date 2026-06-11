@@ -1,1 +1,10 @@
-deepseek_markdown_20260521_6967f7.md
+# Ignore Word documents, backups, and root HTML files
+*.docx
+/*.html
+*Backup.docx
+node_modules/
+dist/
+.env
+.env.local
+logs/
+*.log

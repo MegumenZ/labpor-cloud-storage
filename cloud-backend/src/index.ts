@@ -95,7 +95,7 @@ const app = new Elysia({
         return { message: "Internal Server Error" };
     })
     .get("/", () => "Hello Elysia")
-    .listen(3000);
+    .listen(process.env.PORT ? parseInt(process.env.PORT) : 3001);
 
 console.log(
     `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
