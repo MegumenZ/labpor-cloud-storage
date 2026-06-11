@@ -284,7 +284,7 @@ export function FileGrid({
             >
               {/* Checkbox Selection (Muncul pada mobile, atau hover pada desktop, atau jika sudah diseleksi) */}
               <div
-                className={`absolute top-4 left-4 z-20 transition-all duration-200 ${
+                className={`absolute top-2.5 left-2.5 sm:top-4 sm:left-4 z-20 transition-all duration-200 ${
                   selectedIds.has(file.id)
                     ? "opacity-100 scale-100"
                     : "opacity-100 scale-100 md:opacity-0 md:scale-90 md:group-hover:opacity-100 md:group-hover:scale-100"
@@ -298,7 +298,7 @@ export function FileGrid({
                   type="checkbox"
                   checked={selectedIds.has(file.id)}
                   onChange={() => {}} // Di-handle oleh parent div onClick untuk keandalan input sentuh
-                  className="w-5 h-5 text-primary bg-card border-border/80 rounded-lg cursor-pointer focus:ring-2 focus:ring-primary/20 transition-all"
+                  className="w-4 h-4 sm:w-5 sm:h-5 text-primary bg-card border-border/80 rounded-lg cursor-pointer focus:ring-2 focus:ring-primary/20 transition-all"
                 />
               </div>
 
@@ -306,7 +306,7 @@ export function FileGrid({
               {!isTrash && (
                 <button
                   type="button"
-                  className={`absolute top-4 left-12 z-20 p-1.5 rounded-lg transition-all duration-200 cursor-pointer ${
+                  className={`absolute top-2.5 left-8.5 sm:top-4 sm:left-12 z-20 p-1 rounded-lg transition-all duration-200 cursor-pointer ${
                     file.isFavorite
                       ? "opacity-100 scale-100 text-amber-500 hover:scale-110 active:scale-95"
                       : "opacity-100 scale-100 md:opacity-0 md:scale-90 md:group-hover:opacity-100 md:group-hover:scale-100 text-slate-300 hover:text-amber-400 hover:scale-110 active:scale-95"
@@ -317,42 +317,42 @@ export function FileGrid({
                   }}
                   title={file.isFavorite ? "Remove from Favorites" : "Add to Favorites"}
                 >
-                  <Star size={18} className={file.isFavorite ? "fill-amber-500 text-amber-500 glow-star" : "text-slate-300"} />
+                  <Star size={16} className={file.isFavorite ? "fill-amber-500 text-amber-500 glow-star" : "text-slate-300"} />
                 </button>
               )}
 
               {/* Tiga Titik Menu Pop-up / Restore & Delete */}
-              <div className="absolute top-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
+              <div className="absolute top-2.5 right-2.5 sm:top-4 sm:right-4 z-20" onClick={(e) => e.stopPropagation()}>
                 {isTrash ? (
                   <div className="flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => onRestore?.(file.id)}
-                      className="p-1.5 hover:bg-green-500/10 dark:hover:bg-green-500/20 rounded-lg text-green-600 dark:text-green-400 cursor-pointer transition-all"
+                      className="p-1 hover:bg-green-500/10 dark:hover:bg-green-500/20 rounded-lg text-green-600 dark:text-green-400 cursor-pointer transition-all"
                       title="Restore"
                     >
-                      <RefreshCw size={18} />
+                      <RefreshCw size={16} />
                     </button>
                     <button
                       onClick={() => onDelete(file.id)}
-                      className="p-1.5 hover:bg-red-500/10 dark:hover:bg-red-500/20 rounded-lg text-red-600 dark:text-red-400 cursor-pointer transition-all"
+                      className="p-1 hover:bg-red-500/10 dark:hover:bg-red-500/20 rounded-lg text-red-600 dark:text-red-400 cursor-pointer transition-all"
                       title="Delete Permanently"
                     >
-                      <Trash2 size={18} />
+                      <Trash2 size={16} />
                     </button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-1">
                     {!file.allowEdit && (
-                      <div className="p-1 text-red-500" title="Locked by owner (read-only)">
-                        <Lock size={15} />
+                      <div className="p-0.5 text-red-500" title="Locked by owner (read-only)">
+                        <Lock size={14} />
                       </div>
                     )}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
-                          className="p-2 md:p-1.5 hover:bg-accent rounded-lg transition-all cursor-pointer text-muted-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent data-[state=open]:text-primary"
+                          className="p-1.5 md:p-1.5 hover:bg-accent rounded-lg transition-all cursor-pointer text-muted-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent data-[state=open]:text-primary"
                         >
-                          <MoreVertical size={20} />
+                          <MoreVertical size={18} />
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48 bg-popover border border-border shadow-2xl rounded-xl p-1 z-50 text-popover-foreground">
@@ -456,7 +456,7 @@ export function FileGrid({
               <thead>
                 <tr className="border-b border-border bg-muted/30 text-xs font-semibold uppercase tracking-wider text-foreground/70">
                   {/* Select All Checkbox Header Column */}
-                  <th className="py-4 px-6 w-12 text-center" onClick={(e) => e.stopPropagation()}>
+                  <th className="py-4 px-3 md:px-6 w-12 text-center" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={isAllSelected}
@@ -467,7 +467,7 @@ export function FileGrid({
                   {!isTrash && <th className="py-4 px-2 w-10 text-center"></th>}
                   <th
                     onClick={() => handleHeaderClick("name")}
-                    className="py-4 px-6 cursor-pointer hover:bg-muted/40 transition-colors select-none"
+                    className="py-4 px-3 md:px-6 cursor-pointer hover:bg-muted/40 transition-colors select-none"
                   >
                     <div className="flex items-center gap-1">
                       Name {renderSortIndicator("name")}
@@ -500,7 +500,7 @@ export function FileGrid({
                   <th className="py-4 px-6 hidden md:table-cell w-40">
                     {isTrash ? "Deleted By" : "Uploaded By"}
                   </th>
-                  <th className="py-4 px-6 text-right w-24">Actions</th>
+                  <th className="py-4 px-3 md:px-6 text-right w-24">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border text-sm">
@@ -526,7 +526,7 @@ export function FileGrid({
                       className={rowStyle}
                     >
                       {/* Row Checkbox Column */}
-                      <td className="py-3 px-6 w-12 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="py-3 px-3 md:px-6 w-12 text-center" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={selectedIds.has(file.id)}
@@ -554,7 +554,7 @@ export function FileGrid({
                       )}
 
                       {/* Name Column */}
-                      <td className="py-3 px-6 font-bold text-foreground min-w-[200px]">
+                      <td className="py-3 px-3 md:px-6 font-bold text-foreground min-w-[200px]">
                         <div className="flex items-center gap-3">
                           <div className="shrink-0 flex items-center justify-center w-10 h-10 rounded-xl bg-muted/40 border border-border group-hover:scale-105 transition-transform">
                             {getIcon(file, 20)}
@@ -605,7 +605,7 @@ export function FileGrid({
                       </td>
 
                       {/* Actions Column */}
-                      <td className="py-3 px-6 text-right relative" onClick={(e) => e.stopPropagation()}>
+                      <td className="py-3 px-3 md:px-6 text-right relative" onClick={(e) => e.stopPropagation()}>
                         {isTrash ? (
                           <div className="flex gap-1 justify-end opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                             <button

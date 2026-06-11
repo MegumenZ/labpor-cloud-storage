@@ -362,7 +362,7 @@ function App() {
             </Button>
           </div>
         ) : (
-          <div className="flex-1 p-6">
+          <div className="flex-1 p-0 md:p-6 mt-4 md:mt-0">
             {/* Breadcrumb (Only show in 'files' mode) */}
             {viewMode === "files" && (
               <Breadcrumbs items={folderStack} onNavigate={handleNavigate} />
