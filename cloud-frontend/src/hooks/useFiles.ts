@@ -120,7 +120,7 @@ export function useFiles(
     ]);
 
     try {
-      const res = await api.post("/files/upload-local", formData, {
+      const res = await api.post("/files/upload", formData, {
         withCredentials: true,
         signal: controller.signal,
         onUploadProgress: (progressEvent) => {

@@ -223,7 +223,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         }
     })
     .post(
-        "/upload-local",
+        "/upload",
         async (c) => {
             const user = await requireAuth(c);
             const { body, set } = c;
