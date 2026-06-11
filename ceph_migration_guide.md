@@ -590,8 +590,8 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
 
-    # Batasi ukuran unggahan maksimal (Contoh: 5GB untuk video besar)
-    client_max_body_size 5G;
+    # Batasi ukuran unggahan maksimal (0 = Tanpa batasan di tingkat Nginx, biarkan backend membatasi hingga 500GB)
+    client_max_body_size 0;
 
     # Frontend Static Files
     location / {

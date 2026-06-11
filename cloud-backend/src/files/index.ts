@@ -236,11 +236,11 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                 return { message: "File type is not allowed for security reasons" };
             }
 
-            // 2️⃣ VALIDASI UKURAN (Diatur tinggi karena akan terhubung ke Ceph, misal 5GB)
-            const MAX_SIZE = 5 * 1024 * 1024 * 1024; // 5GB
+            // 2️⃣ VALIDASI UKURAN (Diatur tinggi karena akan terhubung ke Ceph, misal 500GB)
+            const MAX_SIZE = 500 * 1024 * 1024 * 1024; // 500GB
             if (uploadedFile.size > MAX_SIZE) {
                 set.status = 400;
-                return { message: "File size exceeds 5GB" };
+                return { message: "File size exceeds 500GB" };
             }
 
             // 3️⃣ VALIDASI NAMA FILE (MINIMAL)

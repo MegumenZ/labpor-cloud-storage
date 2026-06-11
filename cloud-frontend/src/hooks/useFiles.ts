@@ -103,9 +103,9 @@ export function useFiles(
       return;
     }
 
-    const MAX_SIZE = 5 * 1024 * 1024 * 1024; // 5GB
+    const MAX_SIZE = 500 * 1024 * 1024 * 1024; // 500GB
     if (file.size > MAX_SIZE) {
-      toast.error("Ukuran berkas melebihi batas maksimal 5GB!");
+      toast.error("Ukuran berkas melebihi batas maksimal 500GB!");
       return;
     }
 
