@@ -96,6 +96,8 @@ function App() {
     handleDragLeave,
     handleDrop,
     handleSearch,
+    uploadingFiles,
+    cancelUpload,
   } = useFiles(isAuthenticated, isStorageOnline, refreshStorageInfo);
 
   // Local UI-only drawer and modal visibility states
@@ -431,6 +433,45 @@ function App() {
           >
             <X size={16} />
           </button>
+        </div>
+      )}
+
+      {/* UPLOADING FILES PROGRESS FLOATING CARD */}
+      {uploadingFiles.length > 0 && (
+        <div className="fixed bottom-6 right-6 z-[60] bg-card/95 backdrop-blur-md shadow-2xl border border-border/80 p-4 rounded-2xl w-80 md:w-96 text-card-foreground animate-in slide-in-from-bottom-5 duration-300">
+          <div className="flex items-center justify-between pb-3 border-b border-border mb-3">
+            <span className="text-sm font-bold text-foreground flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+              Mengunggah {uploadingFiles.length} berkas
+            </span>
+          </div>
+          <div className="max-h-48 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+            {uploadingFiles.map((file) => (
+              <div key={file.id} className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-semibold gap-2">
+                  <span className="truncate text-foreground max-w-[70%] font-medium" title={file.name}>
+                    {file.name}
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-muted-foreground">{file.progress}%</span>
+                    <button
+                      onClick={() => cancelUpload(file.id)}
+                      className="p-1 hover:bg-destructive/15 rounded-lg text-muted-foreground hover:text-destructive transition-all cursor-pointer"
+                      title="Batalkan unggahan"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+                <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="bg-blue-500 h-1.5 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${file.progress}%` }}
+                  ></div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

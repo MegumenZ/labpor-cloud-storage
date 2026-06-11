@@ -297,8 +297,20 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                 storagePath,
             }).returning();
 
+            const [dbUser] = await db.select({ displayName: users.displayName })
+                .from(users)
+                .where(eq(users.id, user.id))
+                .limit(1);
+
             const urls = await getPresignedUrls(newFile.storagePath, newFile.type, newFile.name);
-            return { data: { ...newFile, ...urls } };
+            return {
+                data: {
+                    ...newFile,
+                    ...urls,
+                    uploaderUsername: user.username,
+                    uploaderName: dbUser?.displayName || user.username
+                }
+            };
         },
         {
             body: t.Object({
@@ -322,7 +334,18 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                 isFolder: true,
             }).returning();
 
-            return { data: newFolder };
+            const [dbUser] = await db.select({ displayName: users.displayName })
+                .from(users)
+                .where(eq(users.id, user.id))
+                .limit(1);
+
+            return {
+                data: {
+                    ...newFolder,
+                    uploaderUsername: user.username,
+                    uploaderName: dbUser?.displayName || user.username
+                }
+            };
         },
         {
             body: t.Object({

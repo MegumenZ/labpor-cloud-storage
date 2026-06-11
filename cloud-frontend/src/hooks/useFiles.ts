@@ -3,6 +3,13 @@ import api from "../api";
 import type { FileItem } from "../types";
 import { toast } from "sonner";
 
+export interface UploadingFile {
+  id: string;
+  name: string;
+  progress: number;
+  controller: AbortController;
+}
+
 export function useFiles(
   isAuthenticated: boolean,
   isStorageOnline: boolean,
@@ -18,6 +25,9 @@ export function useFiles(
   // Selection States
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Upload Queue State
+  const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
+
   // Modal States
   const [fileToDelete, setFileToDelete] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
@@ -30,6 +40,16 @@ export function useFiles(
 
   const handleClearSelection = useCallback(() => {
     setSelectedIds(new Set());
+  }, []);
+
+  const cancelUpload = useCallback((id: string) => {
+    setUploadingFiles((prev) => {
+      const file = prev.find((f) => f.id === id);
+      if (file) {
+        file.controller.abort();
+      }
+      return prev.filter((f) => f.id !== id);
+    });
   }, []);
 
   const fetchFiles = useCallback(async () => {
@@ -89,37 +109,52 @@ export function useFiles(
       return;
     }
 
-    const toastId = toast.loading(`Mengunggah berkas "${file.name}"... (0%)`);
+    const uploadId = crypto.randomUUID();
+    const controller = new AbortController();
     const tempUrl = URL.createObjectURL(file);
     const formData = new FormData();
     formData.append("file", file);
     if (currentFolderId) formData.append("parentId", currentFolderId);
 
+    // Tambahkan ke antrean upload
+    setUploadingFiles((prev) => [
+      ...prev,
+      { id: uploadId, name: file.name, progress: 0, controller },
+    ]);
+
     try {
       const res = await api.post("/files/upload-local", formData, {
         withCredentials: true,
+        signal: controller.signal,
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
             const percentCompleted = Math.round(
               (progressEvent.loaded * 100) / progressEvent.total
             );
-            toast.loading(`Mengunggah berkas "${file.name}"... (${percentCompleted}%)`, {
-              id: toastId,
-            });
+            setUploadingFiles((prev) =>
+              prev.map((f) =>
+                f.id === uploadId ? { ...f, progress: percentCompleted } : f
+              )
+            );
           }
         },
       });
       const newFile = { ...res.data.data, previewUrl: tempUrl };
       setFiles((prev) => [newFile, ...prev]);
-      toast.success(`Berkas "${file.name}" berhasil diunggah!`, {
-        id: toastId,
-      });
+      toast.success(`Berkas "${file.name}" berhasil diunggah!`);
       refreshStorageInfo();
-    } catch (err) {
-      const message =
-        (err as { response?: { data?: { message?: string } } }).response?.data
-          ?.message || "Gagal mengunggah berkas";
-      toast.error(message, { id: toastId });
+    } catch (err: any) {
+      if (err.name === "CanceledError" || err.message === "canceled" || controller.signal.aborted) {
+        toast.info(`Unggahan berkas "${file.name}" dibatalkan.`);
+      } else {
+        const message =
+          (err as { response?: { data?: { message?: string } } }).response?.data?.message ||
+          "Gagal mengunggah berkas";
+        toast.error(message);
+      }
+    } finally {
+      // Hapus dari antrean upload
+      setUploadingFiles((prev) => prev.filter((f) => f.id !== uploadId));
     }
   };
 
@@ -499,6 +534,10 @@ export function useFiles(
 
     // Drag-n-drop state
     isDragging,
+
+    // Upload state
+    uploadingFiles,
+    cancelUpload,
 
     // Core handlers
     fetchFiles,
