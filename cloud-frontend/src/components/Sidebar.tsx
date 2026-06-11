@@ -72,7 +72,7 @@ export function Sidebar({
       <div className="p-6 flex items-center justify-between text-sidebar-primary">
         <div className="flex items-center gap-2">
           <Cloud size={32} strokeWidth={2.5} />
-          <span className="text-xl font-extrabold tracking-tight">SkyStore</span>
+          <span className="text-xl font-extrabold tracking-tight">Labpro Storage</span>
         </div>
         {onClose && (
           <button

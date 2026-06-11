@@ -56,7 +56,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             <Cloud size={32} className="text-blue-400" />
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">
-            SkyStore
+            Labpro Storage
           </h1>
           <p className="text-slate-300 text-sm mt-1">
             Private Secure Cloud Storage
