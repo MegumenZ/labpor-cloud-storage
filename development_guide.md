@@ -119,3 +119,28 @@ Jika Anda sedang mengembangkan atau menguji fitur Fluent Bit dan OpenSearch di k
    & "C:\Program Files\fluent-bit\bin\fluent-bit.exe" -c fluent-bit-app.conf
    ```
 3. Buka browser ke `http://localhost:5601` untuk melihat visualisasi log di OpenSearch Dashboards lokal (kredensial default: `admin` / `LabproCephLogging2026!`).
+
+---
+
+## 6. Tips & Masalah Pengembangan Lokal (Troubleshooting)
+
+### 6.1. Terkena Blokir Rate Limit Saat Pengujian
+* **Masalah**: Anda menerima respons `429 Too Many Requests` saat mencoba login, register, atau mengirim request bertubi-tubi di PC lokal.
+* **Penyebab**: Aplikasi menggunakan middleware pembatas laju request (*Rate Limiter*) berbasis tabel database untuk keamanan.
+* **Solusi**: Anda dapat mengosongkan pembatas tersebut dengan mengosongkan tabel `rate_limits` langsung dari database PostgreSQL lokal:
+  ```sql
+  TRUNCATE TABLE rate_limits;
+  ```
+
+### 6.2. Masalah CORS (Cross-Origin Resource Sharing)
+* **Masalah**: Frontend gagal memanggil API backend dengan error CORS pada konsol browser.
+* **Penyebab**: Domain/port frontend lokal Anda belum terdaftar di daftar asal yang diizinkan (*Allowed Origins*).
+* **Solusi**: Pastikan variabel `ALLOWED_ORIGINS` di berkas `.env` backend mengarah ke URL frontend lokal Anda (default: `http://localhost:5173`). Jika port frontend berubah, sesuaikan nilai variabel tersebut di `.env` dan restart server backend Bun.
+
+### 6.3. Sinkronisasi Ulang Database & S3 Bucket
+* **Masalah**: Data di database lokal tidak sinkron dengan isi berkas di penyimpanan S3 lokal (MinIO/Ceph).
+* **Solusi**: Gunakan skrip pembersih yang telah disediakan untuk mereset seluruh record data file di database ke kondisi kosong agar Anda bisa mengunggah ulang dari awal:
+  ```bash
+  bun run db:reset-files
+  ```
+

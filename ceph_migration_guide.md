@@ -631,3 +631,40 @@ sudo systemctl restart nginx
 ```
 
 Kini aplikasi web **Labpro Storage** dapat diakses melalui browser host di alamat **`https://100.68.13.84`**.
+
+---
+
+## 12. Catatan Troubleshooting & Penyelesaian Masalah
+
+Berikut adalah beberapa kendala umum yang ditemui saat migrasi dan cara mengatasinya:
+
+### 12.1. Konflik Port 3000 (Grafana Ceph)
+* **Masalah**: Backend ElysiaJS gagal menyala karena port `3000` sudah terpakai (*EADDRINUSE*).
+* **Penyebab**: Cephadm secara default menggunakan port `3000` untuk menjalankan kontainer monitoring Grafana di VM.
+* **Solusi**: Pindahkan port backend ke `3001` di berkas `.env` dan sesuaikan blok `proxy_pass` pada file konfigurasi site Nginx (`/etc/nginx/sites-available/labpro-storage`) ke `http://127.0.0.1:3001`.
+
+### 12.2. Indeks Log / Index Pattern Hilang Saat Kontainer OpenSearch Dihapus
+* **Masalah**: Setelah menghentikan/menghapus kontainer OpenSearch, semua data log dan *Index Pattern* di OpenSearch Dashboards menghilang.
+* **Penyebab**: Konfigurasi kontainer awal tidak menyertakan *mount directory* (Volume), sehingga seluruh data disimpan di dalam kontainer yang bersifat temporer.
+* **Solusi**: Gunakan volume Docker eksternal di berkas `docker-compose-opensearch.yml` Anda:
+  ```yaml
+  services:
+    opensearch:
+      ...
+      restart: unless-stopped
+      volumes:
+        - opensearch-data:/usr/share/opensearch/data
+  ...
+  volumes:
+    opensearch-data:
+      driver: local
+  ```
+  Dengan ini, data indeks log disimpan secara persisten di harddisk VM (`/var/lib/docker/volumes/`) dan tidak akan terhapus meskipun kontainer diturunkan (`docker-compose down`).
+
+### 12.3. Gagal Membuat Folder Baru di Halaman Utama (Root)
+* **Masalah**: Folder baru berhasil dibuat di dalam sub-folder, tetapi gagal (error 400 Bad Request) jika dibuat langsung di halaman utama.
+* **Penyebab**: Di halaman utama, ID folder aktif bernilai `null`. Frontend mengirimkan `{ parentId: null }` ke API. Skema validasi backend `t.Optional(t.String())` menolak data `null` karena menganggap tipe tersebut tidak sesuai (hanya boleh berupa string atau dilewati/undefined).
+* **Solusi**:
+  * Di frontend, pastikan payload dikirim menggunakan fallback undefined: `parentId: currentFolderId || undefined`.
+  * Di backend (`src/files/index.ts`), perbarui validasi skema input agar menerima tipe null secara eksplisit: `parentId: t.Optional(t.Union([t.String(), t.Null()]))`.
+
