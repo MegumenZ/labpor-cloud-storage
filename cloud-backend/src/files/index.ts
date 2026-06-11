@@ -327,7 +327,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         {
             body: t.Object({
                 name: t.String(),
-                parentId: t.Optional(t.String()),
+                parentId: t.Optional(t.Union([t.String(), t.Null()])),
             }),
         }
     )

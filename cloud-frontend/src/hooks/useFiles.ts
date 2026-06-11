@@ -143,7 +143,7 @@ export function useFiles(
     try {
       await api.post("/files/folder", {
         name: newFolderName,
-        parentId: currentFolderId,
+        parentId: currentFolderId || undefined,
       });
       toast.success(`Folder "${newFolderName}" berhasil dibuat!`, {
         id: toastId,
