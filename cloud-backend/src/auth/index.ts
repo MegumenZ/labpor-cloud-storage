@@ -21,6 +21,11 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 return { message: "Username already exists" };
             }
 
+            if (password.length < 8) {
+                set.status = 400;
+                return { message: "Password must be at least 8 characters long" };
+            }
+
             // Create user
             const hashedPassword = await Bun.password.hash(password);
             const [newUser] = await db.insert(users).values({
