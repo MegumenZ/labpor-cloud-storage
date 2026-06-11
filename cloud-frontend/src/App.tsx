@@ -47,7 +47,7 @@ function App() {
     updateProfile,
   } = useAuth();
 
-  const { theme, toggleTheme } = useTheme(isAuthenticated);
+  useTheme();
 
   const {
     files,
@@ -320,8 +320,6 @@ function App() {
         )}
 
         <Header
-          theme={theme}
-          onThemeToggle={toggleTheme}
           onSearch={handleSearch}
           searchQuery={searchQuery}
           onLogout={logout}

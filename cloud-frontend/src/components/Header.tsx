@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Search, LogOut, Trash2, Sun, Moon, Menu } from "lucide-react";
+import { Search, LogOut, Trash2, Menu } from "lucide-react";
 
 interface HeaderProps {
   onLogout?: () => void;
@@ -7,8 +7,6 @@ interface HeaderProps {
   searchQuery?: string;
   title?: string;
   onEmptyTrash?: () => void;
-  theme?: "light" | "dark";
-  onThemeToggle?: () => void;
   onToggleSidebar?: () => void;
 }
 
@@ -18,8 +16,6 @@ export function Header({
   searchQuery = "",
   title = "My Files",
   onEmptyTrash,
-  theme = "light",
-  onThemeToggle,
   onToggleSidebar,
 }: HeaderProps) {
   const [localSearch, setLocalSearch] = useState(searchQuery);
@@ -84,17 +80,7 @@ export function Header({
 
         {/* Mobile-only Quick settings aligned right */}
         <div className="flex items-center gap-2 md:hidden">
-          <button
-            onClick={onThemeToggle}
-            className="p-2.5 bg-card border border-border rounded-xl transition-all cursor-pointer text-muted-foreground hover:text-foreground hover:bg-accent/40 active:scale-95 flex items-center justify-center shrink-0 shadow-sm"
-            title={theme === "dark" ? "Ganti ke Mode Terang" : "Ganti ke Mode Gelap"}
-          >
-            {theme === "dark" ? (
-              <Sun size={18} className="text-amber-500" />
-            ) : (
-              <Moon size={18} className="text-primary" />
-            )}
-          </button>
+
           {onLogout && (
             <button
               onClick={onLogout}
@@ -123,17 +109,7 @@ export function Header({
 
       {/* Desktop Right Column: Theme Toggle & Logout Button (Hidden on Mobile) */}
       <div className="hidden md:flex justify-end items-center gap-3.5 min-w-0 md:col-span-1">
-        <button
-          onClick={onThemeToggle}
-          className="p-2.5 bg-card border border-border rounded-xl transition-all cursor-pointer text-muted-foreground hover:text-foreground hover:bg-accent/40 active:scale-95 flex items-center justify-center shrink-0 shadow-sm"
-          title={theme === "dark" ? "Ganti ke Mode Terang" : "Ganti ke Mode Gelap"}
-        >
-          {theme === "dark" ? (
-            <Sun size={18} className="text-amber-500 animate-in spin-in-45 duration-500" />
-          ) : (
-            <Moon size={18} className="text-primary animate-in spin-in-45 duration-500" />
-          )}
-        </button>
+
         {onLogout && (
           <button
             onClick={onLogout}
