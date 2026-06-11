@@ -1,0 +1,121 @@
+# Panduan Pengembangan Lokal (Development Guide) - Labpro Storage
+
+Dokumen ini ditujukan bagi developer (anggota Labpro atau Anda sendiri) yang ingin menjalankan, memodifikasi, atau mengembangkan aplikasi **Labpro Storage** di lingkungan lokal (*development/localhost*).
+
+---
+
+## 1. Persyaratan Sistem & Dependensi
+Sebelum memulai, pastikan perangkat lokal Anda sudah terpasang:
+* **Runtime**: [Bun](https://bun.sh/) (Disarankan untuk backend karena performa tinggi dan kompatibilitas penuh dengan ElysiaJS. Namun, Node.js + npm/yarn juga bisa digunakan jika diperlukan).
+* **Database**: PostgreSQL (Berjalan secara lokal atau via Docker).
+* **Object Storage**: Kluster Ceph S3 aktif (atau MinIO lokal sebagai alternatif pengganti S3 untuk pengujian offline).
+* **Git**: Untuk manajemen versi kode.
+
+---
+
+## 2. Struktur Proyek
+Repositori ini terbagi menjadi dua modul utama:
+* `/cloud-backend` (Backend API): Dibangun menggunakan ElysiaJS (Bun framework) dan Drizzle ORM.
+* `/cloud-frontend` (Frontend Web): Portal antarmuka pengguna berbasis React, Vite, dan Tailwind CSS.
+
+---
+
+## 3. Langkah Setup & Pengembangan Lokal
+
+### 3.1. Setup Database PostgreSQL Lokal
+1. Buat database baru bernama `skripsi_cloud` (atau nama lain bebas) di PostgreSQL lokal Anda.
+2. Pastikan credentials (username, password, port) sudah Anda miliki untuk diisi ke berkas konfigurasi `.env`.
+
+### 3.2. Pengembangan Modul Backend (`cloud-backend`)
+1. **Masuk ke direktori backend**:
+   ```bash
+   cd cloud-backend
+   ```
+2. **Pasang dependensi**:
+   ```bash
+   bun install
+   ```
+3. **Konfigurasi Environment Variables (`.env`)**:
+   Salin berkas `.env.example` menjadi `.env` di dalam folder `cloud-backend/`:
+   ```bash
+   cp .env.example .env
+   ```
+   Buka berkas `.env` dan sesuaikan nilainya:
+   * `DATABASE_URL`: Isi dengan URL PostgreSQL lokal Anda (contoh: `postgres://postgres:sandi123@localhost:5432/skripsi_cloud`).
+   * `S3_ENDPOINT`: Arahkan ke endpoint Ceph RGW (atau `http://localhost:9000` jika menggunakan MinIO lokal).
+   * Kredensial S3 (`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME`): Sesuai dengan bucket S3 Anda.
+
+4. **Sinkronisasi Schema Database (Drizzle ORM)**:
+   Gunakan perintah Drizzle Kit untuk membuat tabel secara otomatis di database lokal sesuai schema yang didefinisikan pada kode:
+   ```bash
+   bun run db:push
+   ```
+   *(Opsional: Jalankan `bun run db:studio` jika Anda ingin membuka GUI browser bawaan Drizzle untuk mengedit data secara visual).*
+
+5. **Jalankan Server Backend Lokal**:
+   ```bash
+   bun run dev
+   ```
+   Server backend akan berjalan di `http://localhost:3001`.
+
+6. **Skrip Pembersihan Database Lokal (Jika Diperlukan)**:
+   Jika Anda ingin mengosongkan riwayat rekaman berkas di tabel database tanpa menghapus akun pengguna (untuk sinkronisasi ulang dengan S3), jalankan:
+   ```bash
+   bun run db:reset-files
+   ```
+
+---
+
+### 3.3. Pengembangan Modul Frontend (`cloud-frontend`)
+1. **Masuk ke direktori frontend**:
+   ```bash
+   cd cloud-frontend
+   ```
+2. **Pasang dependensi**:
+   ```bash
+   npm install
+   # atau menggunakan bun:
+   bun install
+   ```
+3. **Jalankan Server Frontend Lokal**:
+   ```bash
+   npm run dev
+   ```
+   Aplikasi frontend akan berjalan di `http://localhost:5173`. 
+   
+   *Secara default, Vite akan mengarahkan kueri API ke backend localhost port 3001. Jika Anda ingin menghubungkan frontend lokal ke backend yang berjalan di VM, buat file `.env` di root `cloud-frontend` dan isi:*
+   ```properties
+   VITE_API_BASE_URL=https://100.68.13.84
+   ```
+
+---
+
+## 4. Alur Kerja Modifikasi Kode & Schema
+
+### 4.1. Menambah / Mengubah Struktur Tabel (Database Schema)
+1. Modifikasi file schema Drizzle di **`cloud-backend/src/db.ts`** (misalnya menambah kolom baru, mengubah tipe data, atau menambah indeks).
+2. Setelah file schema disimpan, jalankan perintah sinkronisasi di terminal backend:
+   ```bash
+   bun run db:push
+   ```
+3. Drizzle akan mendeteksi perbedaan schema dan langsung menerapkannya pada database PostgreSQL lokal tanpa membuat file migrasi mentah (sangat cocok untuk tahap pengembangan cepat).
+
+### 4.2. Mengubah Koneksi S3/Ceph
+* Logika inisialisasi S3 Client berada di **`cloud-backend/src/files/s3.ts`**.
+* Jika Anda ingin memodifikasi batas waktu masa berlaku URL Presigned (untuk preview/download), Anda dapat mengubah parameter di file handler berkas terkait di dalam direktori `cloud-backend/src/files/`.
+
+---
+
+## 5. Menjalankan Centralized Logging secara Lokal (Opsional)
+Jika Anda sedang mengembangkan atau menguji fitur Fluent Bit dan OpenSearch di komputer lokal:
+1. Jalankan OpenSearch dan Dashboards lokal menggunakan Docker Compose:
+   ```bash
+   cd cloud-backend
+   docker-compose -f docker-compose-opensearch.yml up -d
+   ```
+2. Pastikan Fluent Bit lokal terpasang di PC Anda, lalu jalankan log shipper lokal untuk memantau log aplikasi:
+   ```bash
+   # Contoh perintah di Windows (jalankan PowerShell di dalam cloud-backend)
+   & "C:\Program Files\fluent-bit\bin\fluent-bit.exe" -c fluent-bit-app.conf
+   ```
+3. Buka browser ke `http://localhost:5601` untuk melihat visualisasi log di OpenSearch Dashboards lokal (kredensial default: `admin` / `LabproCephLogging2026!`).

@@ -9,6 +9,7 @@ Proyek ini dirancang untuk deployment multi-node VM (Virtual Machine) dan dileng
 * **`cloud-backend/`**: Backend API yang dibangun menggunakan Bun & ElysiaJS, serta Drizzle ORM untuk database PostgreSQL.
 * **`cloud-frontend/`**: Frontend web portal berbasis React, Vite, dan Tailwind CSS.
 * **`ceph_migration_guide.md`**: Catatan teknis & panduan instalasi kluster Ceph, konfigurasi S3 RGW, setup centralized logging, hingga konfigurasi web server Nginx + SSL.
+* **`development_guide.md`**: Panduan langkah-demi-langkah setup lingkungan lokal (*localhost*), menjalankan backend/frontend untuk *development*, dan melakukan modifikasi skema database.
 
 ## Spesifikasi Stack
 * **Runtime & Framework**: Bun & ElysiaJS
@@ -20,7 +21,9 @@ Proyek ini dirancang untuk deployment multi-node VM (Virtual Machine) dan dileng
 
 ---
 
-## Panduan Deployment & Konfigurasi VM
-Seluruh panduan langkah-demi-langkah mulai dari setup NTP Chrony, pembuatan kluster Ceph 3 node, konfigurasi Erasure Coding (k=2, m=1), hingga deployment Nginx proxy di VM dapat diakses pada dokumen terpisah berikut:
+## Panduan & Dokumentasi
 
-👉 **[Panduan Lengkap Migrasi & Setup VM (ceph_migration_guide.md)](ceph_migration_guide.md)**
+Untuk detail instalasi dan pengembangan aplikasi, silakan merujuk pada berkas berikut:
+
+* **[Panduan Lengkap Migrasi & Setup VM (ceph_migration_guide.md)](ceph_migration_guide.md)** — Berisi langkah setup kluster Ceph S3, sinkronisasi NTP, instalasi logging (OpenSearch + Fluent Bit), dan Nginx SSL di mesin virtual.
+* **[Panduan Pengembangan Lokal (development_guide.md)](development_guide.md)** — Berisi tata cara setup database PostgreSQL lokal, instalasi dependensi, sinkronisasi schema database Drizzle ORM, dan menjalankan aplikasi di komputer lokal (development).
