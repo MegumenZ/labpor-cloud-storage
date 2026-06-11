@@ -368,7 +368,7 @@ export default function CustomVideoPlayer({ src, name, downloadUrl }: CustomVide
               setCurrentTime(val);
               resetControlsTimer();
             }}
-            className="custom-video-range absolute inset-0 w-full h-full opacity-0 group-hover:opacity-100 cursor-pointer appearance-none z-20 transition-opacity"
+            className="custom-video-range absolute inset-0 w-full h-full opacity-0 cursor-pointer appearance-none z-20"
           />
 
           {/* Visual Seek Head/Thumb */}
