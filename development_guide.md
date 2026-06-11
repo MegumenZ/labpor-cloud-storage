@@ -144,3 +144,42 @@ Jika Anda sedang mengembangkan atau menguji fitur Fluent Bit dan OpenSearch di k
   bun run db:reset-files
   ```
 
+---
+
+## 7. Panduan Deployment Ke VM Dari Terminal Lokal
+
+Untuk mempublikasikan perubahan kode terbaru dari komputer pengembangan lokal ke VM Server (`100.68.13.84`), jalankan langkah-langkah berikut dari terminal laptop Anda:
+
+### 7.1. Build & Deploy Frontend (React)
+1. **Set Base URL API & Build**:
+   Di PowerShell komputer lokal Anda (pastikan berada di dalam folder `cloud-frontend`), jalankan perintah berikut untuk mengompilasi kode frontend dengan base URL yang mengarah ke VM:
+   ```powershell
+   $env:VITE_API_BASE_URL="https://100.68.13.84"
+   npm run build
+   ```
+2. **Kirim Folder Build ke VM**:
+   Setelah proses kompilasi selesai, jalankan perintah SCP berikut untuk mengganti folder build lama di VM dengan folder `dist` terbaru:
+   ```powershell
+   # Pindah ke root direktori proyek (D:\TesTugas\cloud)
+   cd ..
+   
+   # Hapus folder dist lama di VM
+   ssh root@100.68.13.84 "rm -rf /var/www/labpro-storage/dist"
+   
+   # Kirim folder dist baru
+   scp -r cloud-frontend/dist/ root@100.68.13.84:/var/www/labpro-storage/
+   ```
+
+### 7.2. Deploy Backend (ElysiaJS)
+1. **Kirim Berkas Backend ke VM**:
+   Jika Anda mengubah logika rute backend (misalnya file `files/index.ts`), jalankan perintah ini di PowerShell lokal Anda:
+   ```powershell
+   scp cloud-backend/src/files/index.ts root@100.68.13.84:/root/cloud-backend/src/files/index.ts
+   ```
+2. **Muat Ulang Layanan di VM**:
+   Jalankan perintah restart layanan backend secara remote lewat terminal lokal Anda:
+   ```powershell
+   ssh root@100.68.13.84 "systemctl restart cloud-backend"
+   ```
+
+
