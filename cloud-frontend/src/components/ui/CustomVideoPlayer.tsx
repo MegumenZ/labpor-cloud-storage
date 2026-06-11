@@ -280,7 +280,6 @@ export default function CustomVideoPlayer({ src, name, downloadUrl }: CustomVide
       <video
         ref={videoRef}
         src={src}
-        autoPlay
         className="w-full h-auto max-h-[70vh] object-contain cursor-pointer bg-black"
         onClick={togglePlay}
         onDoubleClick={toggleFullscreen}
