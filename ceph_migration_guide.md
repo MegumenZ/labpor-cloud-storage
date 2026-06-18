@@ -47,9 +47,9 @@ graph TD
     Backend -->|4. Tulis Objek via S3 API| RGW
 
     %% Distribusi Chunks Erasure Coding K=2, M=1
-    RGW -->|5a. Simpan Chunk D1 (Lokal)| OSD0
-    RGW -->|5b. Simpan Chunk D2 (via Tailscale)| OSD1
-    RGW -->|5c. Simpan Chunk P1 (via Tailscale)| OSD2
+    RGW -->|"5a. Simpan Chunk D1 (Lokal)"| OSD0
+    RGW -->|"5b. Simpan Chunk D2 (via Tailscale)"| OSD1
+    RGW -->|"5c. Simpan Chunk P1 (via Tailscale)"| OSD2
 ```
 
 ### 1.2. Spesifikasi Node & Alokasi IP
