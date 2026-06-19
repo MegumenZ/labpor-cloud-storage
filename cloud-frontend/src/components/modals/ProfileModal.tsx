@@ -97,7 +97,7 @@ export default function ProfileModal({ onClose, onUpdate }: ProfileModalProps) {
         setIsEditing(false);
 
         if (onUpdate) {
-          const baseUrl = api.defaults.baseURL || "http://localhost:3000";
+          const baseUrl = api.defaults.baseURL || (import.meta.env.DEV ? "http://localhost:3001" : "");
           const fullAvatarUrl = updatedUser.avatar
             ? (updatedUser.avatar.startsWith("http")
                 ? updatedUser.avatar

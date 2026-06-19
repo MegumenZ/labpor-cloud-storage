@@ -749,3 +749,42 @@ Berikut adalah kendala-kendala umum yang ditemui beserta solusinya:
 *   **Solusi**:
     1.  Pastikan konfigurasi kartu jaringan di dalam sistem Linux VM disetel menggunakan **DHCP (Automatic)**, bukan IP statis. Ini memastikan VM selalu mendapatkan akses internet di mana pun Mini PC terhubung.
     2.  Pastikan semua konfigurasi kluster Ceph, backend, dan frontend diikat ke **IP Tailscale (`100.X.X.X`)**. Karena IP Tailscale tidak akan berubah meskipun IP lokal fisik VM berubah, kluster Anda akan langsung terhubung secara otomatis di jaringan mana pun.
+
+---
+
+## 13. Panduan Prosedur Berpindah Jaringan / Lokasi (Penting untuk Demo & Sidang)
+
+Ketika Anda memindahkan laptop gaming atau Mini PC yang menjalankan kluster VM ini antar lokasi fisik (misalnya dari rumah ke laboratorium kampus), ikuti prosedur wajib di bawah ini agar kluster Anda langsung aktif secara instan:
+
+### Langkah 1: Selaraskan Interface Jaringan VirtualBox di Windows
+Sebelum menyalakan VM di VirtualBox:
+1.  Buka VirtualBox Manager di komputer host Anda (Windows).
+2.  Buka **Settings -> Network** untuk masing-masing VM (`ceph-admin`, `ceph-node1`, `ceph-node2`).
+3.  Pada **Adapter 1 (Bridged Adapter)**, lihat kolom **Name**.
+4.  Pastikan kolom tersebut terpilih ke **kartu jaringan fisik laptop Anda yang sedang aktif saat itu**:
+    *   *Jika terhubung via Wi-Fi:* Pilih nama adapter Wi-Fi Anda (contoh: *Intel(R) Wi-Fi 6 AX201*).
+    *   *Jika terhubung via Kabel LAN:* Pilih nama adapter Ethernet Anda (contoh: *Realtek PCIe GBE Family Controller*).
+5.  Klik **OK** dan nyalakan ketiga VM.
+
+### Langkah 2: Pastikan VM Mendapatkan Koneksi Internet & Tailscale Online
+Setelah VM menyala:
+1.  Masuk ke SSH atau Console VM.
+2.  Uji konektivitas internet dengan perintah: `ping google.com -c 3`.
+3.  Pastikan VM mendapatkan IP lokal dari DHCP router baru, yang memungkinkan VM mengakses internet agar Tailscale-nya terkoneksi secara otomatis.
+
+### Langkah 3: Nyalakan Ulang (Restart) Layanan Ceph Daemon
+Karena koneksi Wi-Fi membutuhkan waktu beberapa detik untuk *handshake* saat komputer booting, daemon Ceph MON, MGR, dan RGW biasanya akan gagal start otomatis karena antarmuka Tailscale belum siap.
+
+Jalankan perintah berikut di terminal **VM1 (`ceph-admin`)**:
+```bash
+sudo systemctl restart ceph-141a6ee2-655f-11f1-8dd4-4d40be6dfbc4.target
+```
+*Catatan: Jalankan juga perintah yang sama di terminal **VM2** dan **VM3** jika terindikasi OSD/Monitor di VM tersebut masih berstatus offline/down.*
+
+### Langkah 4: Verifikasi Kesehatan Kluster
+Uji kesehatan kluster Ceph Anda di VM1 (`ceph-admin`):
+```bash
+sudo ceph -s
+```
+Pastikan status menunjukkan `HEALTH_OK`, `mon: 3 daemons, quorum ...`, dan `osd: 3 up, 3 in`. Kini aplikasi web dan penyimpanan S3 Anda siap didemonstrasikan!
+
