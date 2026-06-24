@@ -84,16 +84,9 @@ export async function getAvatarUrl(avatar: string | null): Promise<string | null
     if (avatar.startsWith("http://") || avatar.startsWith("https://")) {
         return avatar;
     }
-    try {
-        const command = new GetObjectCommand({
-            Bucket: BUCKET_NAME,
-            Key: avatar,
-        });
-        return await getSignedUrl(s3, command, { expiresIn: 86400 });
-    } catch (err: any) {
-        console.error(`Failed to generate avatar presigned URL for ${avatar}:`, err.message);
-        return null;
-    }
+    // Return relative path. The frontend will prepend baseUrl + "/uploads/avatars/".
+    // This allows same-origin HTTPS proxying via our backend.
+    return avatar;
 }
 
 /**

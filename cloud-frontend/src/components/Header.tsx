@@ -102,6 +102,7 @@ export function Header({
             placeholder="Search files..."
             value={localSearch}
             onChange={handleInputChange}
+            aria-label="Search files"
             className="w-full pl-10 pr-4 py-2.5 bg-card border border-border text-foreground rounded-2xl focus:outline-none focus:ring-3 focus:ring-primary/15 focus:border-primary focus:shadow-md focus:shadow-primary/5 transition-all duration-300 text-sm font-medium"
           />
         </div>

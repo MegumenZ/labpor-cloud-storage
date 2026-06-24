@@ -12,6 +12,7 @@ import api from "../../api";
 import type { User as UserType } from "../../types";
 import { DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 interface ProfileModalProps {
   onClose: () => void;
@@ -74,6 +75,21 @@ export default function ProfileModal({ onClose, onUpdate }: ProfileModalProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
       const file = e.target.files[0];
+
+      const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+      if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+        toast.error("Avatar harus berupa gambar bertipe JPEG, PNG, atau WebP!");
+        e.target.value = "";
+        return;
+      }
+
+      const MAX_SIZE = 10 * 1024 * 1024;
+      if (file.size > MAX_SIZE) {
+        toast.error("Ukuran avatar tidak boleh melebihi 10MB!");
+        e.target.value = "";
+        return;
+      }
+
       setAvatarFile(file);
       setPreviewAvatar(URL.createObjectURL(file));
     }
@@ -113,7 +129,7 @@ export default function ProfileModal({ onClose, onUpdate }: ProfileModalProps) {
     } catch (err: any) {
       console.error("Failed to update profile", err);
       const serverMessage = err.response?.data?.message || "Failed to update profile";
-      alert(serverMessage);
+      toast.error(serverMessage);
     } finally {
       setSaving(false);
     }

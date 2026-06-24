@@ -221,9 +221,10 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
 
         if (avatar) {
             // 1. Validasi MIME type
-            if (!avatar.type.startsWith("image/")) {
+            const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+            if (!ALLOWED_MIME_TYPES.includes(avatar.type)) {
                 set.status = 400;
-                return { message: "Avatar must be an image file" };
+                return { message: "Avatar must be a JPEG, PNG, or WebP image" };
             }
 
             // 2. Validasi ukuran (max 10MB)

@@ -9,13 +9,15 @@ import { AuthenticationError, authPlugin } from "./auth/middleware";
 import { writeLog } from "./utils/logger";
 import { mkdir } from "fs/promises";
 import { autoDeleteTrash } from "./cron/autoDeleteTrash";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { s3, BUCKET_NAME } from "./files/s3";
 
 // Ensure local uploads directory exists for static assets (e.g. avatars) to avoid ENOENT crashes
 await mkdir("uploads/avatars", { recursive: true });
 
 const app = new Elysia({
     serve: {
-        maxRequestBodySize: 1024 * 1024 * 1024 * 5 // 5GB in bytes
+        maxRequestBodySize: 1024 * 1024 * 1024 * 50 // 50GB in bytes
     }
 })
     .use(cors({
@@ -51,6 +53,33 @@ const app = new Elysia({
         });
     })
     .use(swagger())
+    .get("/uploads/avatars/*", async ({ params, set }) => {
+        const path = params["*"];
+        const cleanPath = path.includes("avatars/") ? path : `avatars/${path}`;
+        
+        if (cleanPath.includes("..") || cleanPath.includes("\\")) {
+            set.status = 400;
+            return { message: "Invalid filename" };
+        }
+
+        try {
+            const command = new GetObjectCommand({
+                Bucket: BUCKET_NAME,
+                Key: cleanPath,
+            });
+            const response = await s3.send(command);
+            if (!response.Body) {
+                set.status = 404;
+                return { message: "Avatar not found" };
+            }
+            set.headers["content-type"] = response.ContentType || "image/jpeg";
+            const bytes = await response.Body.transformToByteArray();
+            return new Response(bytes);
+        } catch (err: any) {
+            set.status = 404;
+            return { message: "Avatar not found" };
+        }
+    })
     .use(staticPlugin({
         assets: "uploads",
         prefix: "/uploads"

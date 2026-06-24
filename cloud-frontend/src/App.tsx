@@ -5,7 +5,6 @@ import api from "./api";
 
 // Import Custom Hooks
 import { useAuth } from "./hooks/useAuth";
-import { useTheme } from "./hooks/useTheme";
 import { useFiles } from "./hooks/useFiles";
 
 // Import Components
@@ -19,6 +18,8 @@ import MoveModal from "./components/modals/MoveModal";
 import DeleteModal from "./components/modals/DeleteModal";
 import PropertiesModal from "./components/modals/PropertiesModal";
 import ProfileModal from "./components/modals/ProfileModal";
+import RenameModal from "./components/modals/RenameModal";
+import StorageErrorModal from "./components/modals/StorageErrorModal";
 
 // Import shadcn/ui & Sonner Premium Components
 import { Toaster, toast } from "sonner";
@@ -47,8 +48,6 @@ function App() {
     updateProfile,
   } = useAuth();
 
-  useTheme();
-
   const {
     files,
     loading,
@@ -57,12 +56,14 @@ function App() {
     searchQuery,
     viewMode,
     selectedIds,
-    fileToDelete,
-    setFileToDelete,
+    confirmDeleteConfig,
+    setConfirmDeleteConfig,
     selectedFile,
     setSelectedFile,
     filesToMove,
     setFilesToMove,
+    fileToRename,
+    setFileToRename,
     fileProperties,
     setFileProperties,
     isNewFolderOpen,
@@ -74,7 +75,6 @@ function App() {
     handleUploadInput,
     handleCreateFolder,
     onCreateFolderSubmit,
-    handleDelete,
     handleRestore,
     handleEmptyTrash,
     handleDownload,
@@ -98,7 +98,15 @@ function App() {
     handleSearch,
     uploadingFiles,
     cancelUpload,
-  } = useFiles(isAuthenticated, isStorageOnline, refreshStorageInfo);
+    storageErrorConfig,
+    setStorageErrorConfig,
+  } = useFiles(
+    isAuthenticated,
+    isStorageOnline,
+    refreshStorageInfo,
+    storageInfo.used,
+    storageInfo.limit
+  );
 
   // Local UI-only drawer and modal visibility states
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -167,14 +175,17 @@ function App() {
       </Dialog>
 
       <Dialog
-        open={!!fileToDelete}
-        onOpenChange={(open: boolean) => !open && setFileToDelete(null)}
+        open={!!confirmDeleteConfig}
+        onOpenChange={(open: boolean) => !open && setConfirmDeleteConfig(null)}
       >
-        {fileToDelete && (
+        {confirmDeleteConfig && (
           <DeleteModal
-            onConfirm={handleDelete}
-            onCancel={() => setFileToDelete(null)}
+            onConfirm={confirmDeleteConfig.onConfirm}
+            onCancel={() => setConfirmDeleteConfig(null)}
             isPermanent={viewMode === "trash"}
+            title={confirmDeleteConfig.title}
+            description={confirmDeleteConfig.description}
+            confirmLabel={confirmDeleteConfig.confirmLabel}
           />
         )}
       </Dialog>
@@ -189,6 +200,20 @@ function App() {
             file={fileProperties}
             breadcrumbs={folderStack}
             onClose={() => setFileProperties(null)}
+          />
+        )}
+      </Dialog>
+
+      {/* Global shadcn/ui Dialog Integration for Rename */}
+      <Dialog
+        open={!!fileToRename}
+        onOpenChange={(open: boolean) => !open && setFileToRename(null)}
+      >
+        {fileToRename && (
+          <RenameModal
+            file={fileToRename}
+            onClose={() => setFileToRename(null)}
+            onRenameSuccess={fetchFiles}
           />
         )}
       </Dialog>
@@ -210,6 +235,17 @@ function App() {
           />
         )}
       </Dialog>
+
+      <StorageErrorModal
+        isOpen={!!storageErrorConfig}
+        onClose={() => setStorageErrorConfig(null)}
+        fileSize={storageErrorConfig?.fileSize || 0}
+        availableStorage={storageErrorConfig?.availableStorage || 0}
+        limit={storageErrorConfig?.limit || 0}
+        absoluteMax={storageErrorConfig?.absoluteMax}
+        onEmptyTrash={handleEmptyTrash}
+        hasTrashItems={true}
+      />
 
       {/* Global shadcn/ui Dialog for New Folder Action */}
       <Dialog open={isNewFolderOpen} onOpenChange={setIsNewFolderOpen}>

@@ -166,7 +166,14 @@ export function Sidebar({
               </p>
             </div>
           </div>
-          <div className="w-full bg-sidebar-border rounded-full h-2 overflow-hidden">
+          <div 
+            className="w-full bg-sidebar-border rounded-full h-2 overflow-hidden"
+            role="progressbar"
+            aria-label="Storage Usage"
+            aria-valuenow={Math.round(Math.min(percentage, 100))}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
             <div
               className="bg-sidebar-primary h-2 rounded-full transition-all duration-500"
               style={{ width: `${Math.min(percentage, 100)}%` }}

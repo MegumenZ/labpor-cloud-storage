@@ -284,7 +284,7 @@ export function FileGrid({
             >
               {/* Checkbox Selection (Muncul pada mobile, atau hover pada desktop, atau jika sudah diseleksi) */}
               <div
-                className={`absolute top-2.5 left-2.5 sm:top-4 sm:left-4 z-20 transition-all duration-200 ${
+                className={`absolute top-3 left-3 sm:top-4 sm:left-4 z-20 transition-all duration-200 ${
                   selectedIds.has(file.id)
                     ? "opacity-100 scale-100"
                     : "opacity-100 scale-100 md:opacity-0 md:scale-90 md:group-hover:opacity-100 md:group-hover:scale-100"
@@ -306,7 +306,7 @@ export function FileGrid({
               {!isTrash && (
                 <button
                   type="button"
-                  className={`absolute top-2.5 left-8.5 sm:top-4 sm:left-12 z-20 p-1 rounded-lg transition-all duration-200 cursor-pointer ${
+                  className={`absolute top-3 left-10 sm:top-4 sm:left-12 z-20 p-1 rounded-lg transition-all duration-200 cursor-pointer ${
                     file.isFavorite
                       ? "opacity-100 scale-100 text-amber-500 hover:scale-110 active:scale-95"
                       : "opacity-100 scale-100 md:opacity-0 md:scale-90 md:group-hover:opacity-100 md:group-hover:scale-100 text-slate-300 hover:text-amber-400 hover:scale-110 active:scale-95"
@@ -359,49 +359,49 @@ export function FileGrid({
                         {!file.isFolder && (
                           <DropdownMenuItem
                             onClick={() => onSelect(file)}
-                            className="flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
+                            className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
                           >
-                            <Eye size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Open
+                            <Eye size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Open
                           </DropdownMenuItem>
                         )}
                         {!file.isFolder && (
                           <DropdownMenuItem
                             onClick={() => onDownload(file)}
-                            className="flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
+                            className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
                           >
-                            <Download size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Download
+                            <Download size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Download
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem
                           onClick={() => onRename(file)}
-                          className="flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
+                          className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
                         >
-                          <Edit2 size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Rename
+                          <Edit2 size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Rename
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => onMove(file)}
-                          className="flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
+                          className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
                         >
-                          <FolderInput size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Move
+                          <FolderInput size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Move
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => onProperties(file)}
-                          className="flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
+                          className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
                         >
-                          <Info size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Info
+                          <Info size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Info
                         </DropdownMenuItem>
                         {currentUser && file.uploaderUsername === currentUser && (
                           <DropdownMenuItem
                             onClick={() => onToggleLock?.(file)}
-                            className="flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
+                            className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
                           >
                             {file.allowEdit ? (
                               <>
-                                <Lock size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Lock Editing
+                                <Lock size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Lock Editing
                               </>
                             ) : (
                               <>
-                                <Unlock size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Unlock Editing
+                                <Unlock size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Unlock Editing
                               </>
                             )}
                           </DropdownMenuItem>
@@ -636,49 +636,49 @@ export function FileGrid({
                               {!file.isFolder && (
                                 <DropdownMenuItem
                                   onClick={() => onSelect(file)}
-                                  className="flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
+                                  className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
                                 >
-                                  <Eye size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Open
+                                  <Eye size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Open
                                 </DropdownMenuItem>
                               )}
                               {!file.isFolder && (
                                 <DropdownMenuItem
                                   onClick={() => onDownload(file)}
-                                  className="flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
+                                  className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
                                 >
-                                  <Download size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Download
+                                  <Download size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Download
                                 </DropdownMenuItem>
                               )}
                               <DropdownMenuItem
                                 onClick={() => onRename(file)}
-                                className="flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
+                                className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
                               >
-                                <Edit2 size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Rename
+                                <Edit2 size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Rename
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => onMove(file)}
-                                className="flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
+                                className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
                               >
-                                <FolderInput size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Move
+                                <FolderInput size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Move
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => onProperties(file)}
-                                className="flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
+                                className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
                               >
-                                <Info size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Info
+                                <Info size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Info
                               </DropdownMenuItem>
                               {currentUser && file.uploaderUsername === currentUser && (
                                 <DropdownMenuItem
                                   onClick={() => onToggleLock?.(file)}
-                                  className="flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
+                                  className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
                                 >
                                   {file.allowEdit ? (
                                     <>
-                                      <Lock size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Lock Editing
+                                      <Lock size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Lock Editing
                                     </>
                                   ) : (
                                     <>
-                                      <Unlock size={16} className="text-muted-foreground group-hover/dropdown-menu-item:text-accent-foreground" /> Unlock Editing
+                                      <Unlock size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Unlock Editing
                                     </>
                                   )}
                                 </DropdownMenuItem>

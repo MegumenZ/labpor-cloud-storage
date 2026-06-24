@@ -1,4 +1,5 @@
 import { S3Client } from "@aws-sdk/client-s3";
+import { FetchHttpHandler } from "@smithy/fetch-http-handler";
 
 const endpoint = process.env.S3_ENDPOINT;
 const accessKeyId = process.env.S3_ACCESS_KEY_ID;
@@ -17,6 +18,7 @@ export const s3 = new S3Client({
         secretAccessKey,
     },
     forcePathStyle: true, // Required for custom S3 providers like Ceph RGW or MinIO
+    requestHandler: new FetchHttpHandler(),
 });
 
 export const BUCKET_NAME = bucketName;

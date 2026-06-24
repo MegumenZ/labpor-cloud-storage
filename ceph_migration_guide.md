@@ -699,6 +699,9 @@ server {
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
         
+        # Nonaktifkan buffering request body ke disk oleh Nginx untuk menghemat kapasitas disk VM1
+        proxy_request_buffering off;
+        
         # Penyetelan timeout untuk mencegah putusnya unggahan berkas berukuran besar (500GB)
         proxy_connect_timeout 86400s;
         proxy_send_timeout    86400s;

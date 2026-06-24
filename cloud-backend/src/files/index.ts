@@ -4,9 +4,11 @@ import { eq, and, isNull, ilike, inArray, desc, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { authPlugin, requireAuth } from "../auth/middleware";
 import { s3, BUCKET_NAME } from "./s3";
+import { Upload } from "@aws-sdk/lib-storage";
 import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { writeLog } from "../utils/logger";
 import { getPresignedUrls, getAllDescendants, deletePhysicalFile } from "../utils/ceph";
+import { Readable } from "stream";
 
 const BANNED_EXTENSIONS = [
     "html", "htm", "js", "ts", "php", "phtml", "php3", "php4", "php5", "phps",
@@ -136,6 +138,19 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             return { message: "File not found" };
         }
         
+        if (file.isDeleted) {
+            try {
+                const user = await requireAuth(c);
+                if (file.userId !== user.id && file.deletedBy !== user.id) {
+                    set.status = 403;
+                    return { message: "Forbidden: Cannot preview deleted file" };
+                }
+            } catch {
+                set.status = 403;
+                return { message: "Forbidden: Cannot preview deleted file" };
+            }
+        }
+        
         const rangeHeader = request.headers.get("range");
         const s3Params: any = {
             Bucket: BUCKET_NAME,
@@ -182,6 +197,13 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         if (!file || !file.storagePath) {
             set.status = 404;
             return { message: "File not found" };
+        }
+
+        if (file.isDeleted) {
+            if (file.userId !== user.id && file.deletedBy !== user.id) {
+                set.status = 403;
+                return { message: "Forbidden: Cannot download deleted file" };
+            }
         }
         
         const rangeHeader = request.headers.get("range");
@@ -244,7 +266,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             }
 
             // 3️⃣ VALIDASI NAMA FILE (MINIMAL)
-            if (!uploadedFile.name || uploadedFile.name.includes("..")) {
+            if (!uploadedFile.name || uploadedFile.name.includes("..") || uploadedFile.name.includes("/") || uploadedFile.name.includes("\\")) {
                 set.status = 400;
                 return { message: "Invalid file name" };
             }
@@ -256,15 +278,23 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             // 5️⃣ SIMPAN FILE KE CEPH S3
             try {
                 const uploadStart = Date.now();
-                const arrayBuffer = await uploadedFile.arrayBuffer();
-                const buffer = Buffer.from(arrayBuffer);
+                const webStream = uploadedFile.stream();
+                const nodeStream = Readable.fromWeb(webStream as any);
 
-                await s3.send(new PutObjectCommand({
-                    Bucket: BUCKET_NAME,
-                    Key: storagePath,
-                    Body: buffer,
-                    ContentType: uploadedFile.type,
-                }));
+                const upload = new Upload({
+                    client: s3,
+                    params: {
+                        Bucket: BUCKET_NAME,
+                        Key: storagePath,
+                        Body: nodeStream,
+                        ContentType: uploadedFile.type,
+                    },
+                    queueSize: 4,
+                    partSize: 10 * 1024 * 1024, // 10MB parts
+                    leavePartsOnError: false,
+                });
+
+                await upload.done();
                 
                 const uploadDuration = Date.now() - uploadStart;
                 await writeLog("INFO", "CEPH", `Successfully uploaded file to Ceph S3: ${storagePath}`, {
@@ -325,8 +355,14 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             const user = await requireAuth(c);
             const { body, set } = c;
 
+            const trimmedName = body.name.trim();
+            if (!trimmedName || trimmedName.includes("..") || trimmedName.includes("/") || trimmedName.includes("\\")) {
+                set.status = 400;
+                return { message: "Invalid folder name" };
+            }
+
             const [newFolder] = await db.insert(files).values({
-                name: body.name,
+                name: trimmedName,
                 type: "folder",
                 size: 0,
                 parentId: body.parentId || null,
@@ -360,47 +396,102 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         const { id } = params;
         const permanent = query.permanent === 'true';
 
-        const [file] = await db.select().from(files).where(eq(files.id, id));
-        if (!file) {
-            set.status = 404;
-            return { message: "File not found" };
-        }
+        let errStatus: number | null = null;
+        let errMsg = "";
+        const filesToDeleteFromS3: string[] = [];
 
-        // Permission check: only owner can edit/delete if allowEdit is false
-        if (file.userId !== user.id && !file.allowEdit) {
-            set.status = 403;
-            return { message: "Forbidden: File is locked by owner" };
-        }
+        try {
+            await db.transaction(async (tx) => {
+                const [file] = await tx.select().from(files).where(eq(files.id, id));
+                if (!file) {
+                    errStatus = 404;
+                    errMsg = "File not found";
+                    tx.rollback();
+                    return;
+                }
 
-        if (permanent) {
-            if (file.isFolder) {
-                const descendants = await getAllDescendants(id);
-                for (const d of descendants) {
-                    if (!d.isFolder && d.storagePath) {
-                        await deletePhysicalFile(d.storagePath, user.id);
+                // Permission check: only owner can edit/delete if allowEdit is false
+                if (file.userId !== user.id && !file.allowEdit) {
+                    errStatus = 403;
+                    errMsg = "Forbidden: File is locked by owner";
+                    tx.rollback();
+                    return;
+                }
+
+                if (permanent) {
+                    if (file.isFolder) {
+                        const result = await tx.execute(sql`
+                            WITH RECURSIVE descendants AS (
+                                SELECT * FROM files WHERE parent_id = ${id}
+                                UNION ALL
+                                SELECT f.* FROM files f
+                                INNER JOIN descendants d ON f.parent_id = d.id
+                            )
+                            SELECT * FROM descendants;
+                        `);
+                        const descendants = result.map((row: any) => ({
+                            id: row.id,
+                            isFolder: row.is_folder === true || row.is_folder === 'true' || row.is_folder === 1,
+                            storagePath: row.storage_path
+                        }));
+
+                        for (const d of descendants) {
+                            if (!d.isFolder && d.storagePath) {
+                                filesToDeleteFromS3.push(d.storagePath);
+                            }
+                        }
+                        const idsToDelete = [id, ...descendants.map(d => d.id)];
+                        await tx.delete(files).where(inArray(files.id, idsToDelete));
+                    } else {
+                        if (file.storagePath) {
+                            filesToDeleteFromS3.push(file.storagePath);
+                        }
+                        await tx.delete(files).where(eq(files.id, id));
+                    }
+                } else {
+                    // Soft delete: track who deleted it in deletedBy
+                    const now = new Date();
+                    await tx.update(files)
+                        .set({ isDeleted: true, deletedAt: now, deletedBy: user.id })
+                        .where(eq(files.id, id));
+
+                    if (file.isFolder) {
+                        const result = await tx.execute(sql`
+                            WITH RECURSIVE descendants AS (
+                                SELECT * FROM files WHERE parent_id = ${id}
+                                UNION ALL
+                                SELECT f.* FROM files f
+                                INNER JOIN descendants d ON f.parent_id = d.id
+                            )
+                            SELECT * FROM descendants;
+                        `);
+                        const descendants = result.map((row: any) => ({
+                            id: row.id
+                        }));
+                        if (descendants.length > 0) {
+                            const descendantIds = descendants.map(d => d.id);
+                            await tx.update(files)
+                                .set({ isDeleted: true, deletedAt: now, deletedBy: user.id })
+                                .where(inArray(files.id, descendantIds));
+                        }
                     }
                 }
-                const idsToDelete = [id, ...descendants.map(d => d.id)];
-                await db.delete(files).where(inArray(files.id, idsToDelete));
-            } else {
-                await deletePhysicalFile(file.storagePath, user.id);
-                await db.delete(files).where(eq(files.id, id));
+            });
+        } catch (error: any) {
+            if (!errStatus) {
+                set.status = 500;
+                return { message: `Database error: ${error.message}` };
             }
-        } else {
-            // Soft delete: track who deleted it in deletedBy
-            await db.update(files)
-                .set({ isDeleted: true, deletedAt: new Date(), deletedBy: user.id })
-                .where(eq(files.id, id));
+        }
 
-            if (file.isFolder) {
-                const descendants = await getAllDescendants(id);
-                if (descendants.length > 0) {
-                    const descendantIds = descendants.map(d => d.id);
-                    await db.update(files)
-                        .set({ isDeleted: true, deletedAt: new Date(), deletedBy: user.id })
-                        .where(inArray(files.id, descendantIds));
-                }
-            }
+        if (errStatus) {
+            set.status = errStatus;
+            return { message: errMsg };
+        }
+
+        // physical delete only after db transaction commits successfully!
+        for (const path of filesToDeleteFromS3) {
+            await deletePhysicalFile(path, user.id);
         }
 
         return { message: "File deleted" };
@@ -410,30 +501,62 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         const { params, set } = c;
         const { id } = params;
 
-        const [file] = await db.select().from(files).where(eq(files.id, id));
-        if (!file) {
-            set.status = 404;
-            return { message: "File not found" };
-        }
+        let errStatus: number | null = null;
+        let errMsg = "";
 
-        // Restore permission check
-        if (file.userId !== user.id && !file.allowEdit) {
-            set.status = 403;
-            return { message: "Forbidden: File is locked by owner" };
-        }
+        try {
+            await db.transaction(async (tx) => {
+                const [file] = await tx.select().from(files).where(eq(files.id, id));
+                if (!file) {
+                    errStatus = 404;
+                    errMsg = "File not found";
+                    tx.rollback();
+                    return;
+                }
 
-        await db.update(files)
-            .set({ isDeleted: false, deletedAt: null, deletedBy: null })
-            .where(eq(files.id, id));
+                // Restore permission check
+                if (file.userId !== user.id && !file.allowEdit) {
+                    errStatus = 403;
+                    errMsg = "Forbidden: File is locked by owner";
+                    tx.rollback();
+                    return;
+                }
 
-        if (file.isFolder) {
-            const descendants = await getAllDescendants(id);
-            if (descendants.length > 0) {
-                const descendantIds = descendants.map(d => d.id);
-                await db.update(files)
+                await tx.update(files)
                     .set({ isDeleted: false, deletedAt: null, deletedBy: null })
-                    .where(inArray(files.id, descendantIds));
+                    .where(eq(files.id, id));
+
+                if (file.isFolder) {
+                    const result = await tx.execute(sql`
+                        WITH RECURSIVE descendants AS (
+                            SELECT * FROM files WHERE parent_id = ${id}
+                            UNION ALL
+                            SELECT f.* FROM files f
+                            INNER JOIN descendants d ON f.parent_id = d.id
+                        )
+                        SELECT * FROM descendants;
+                    `);
+                    const descendants = result.map((row: any) => ({
+                        id: row.id
+                    }));
+                    if (descendants.length > 0) {
+                        const descendantIds = descendants.map(d => d.id);
+                        await tx.update(files)
+                            .set({ isDeleted: false, deletedAt: null, deletedBy: null })
+                            .where(inArray(files.id, descendantIds));
+                    }
+                }
+            });
+        } catch (error: any) {
+            if (!errStatus) {
+                set.status = 500;
+                return { message: `Database error: ${error.message}` };
             }
+        }
+
+        if (errStatus) {
+            set.status = errStatus;
+            return { message: errMsg };
         }
 
         return { message: "File restored" };
@@ -442,7 +565,13 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         const user = await requireAuth(c);
         const { params, body, set } = c;
         const { id } = params;
-        const { newName } = body as { newName: string };
+        const { newName } = body;
+
+        const trimmedName = newName.trim();
+        if (!trimmedName || trimmedName.includes("..") || trimmedName.includes("/") || trimmedName.includes("\\")) {
+            set.status = 400;
+            return { message: "Invalid file or folder name" };
+        }
 
         const [file] = await db.select().from(files).where(eq(files.id, id));
         if (!file) {
@@ -456,10 +585,14 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         }
 
         await db.update(files)
-            .set({ name: newName })
+            .set({ name: trimmedName })
             .where(eq(files.id, id));
 
         return { message: "File renamed" };
+    }, {
+        body: t.Object({
+            newName: t.String(),
+        }),
     })
     .put("/:id/move", async (c) => {
         const user = await requireAuth(c);
@@ -511,20 +644,33 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         const user = await requireAuth(c);
         const { set } = c;
 
-        // Empty the collective trash!
-        const trashItems = await db.select()
-            .from(files)
-            .where(eq(files.isDeleted, true));
+        const filesToDeleteFromS3: string[] = [];
 
-        for (const item of trashItems) {
-            if (!item.isFolder && item.storagePath) {
-                await deletePhysicalFile(item.storagePath);
-            }
+        try {
+            await db.transaction(async (tx) => {
+                const trashItems = await tx.select()
+                    .from(files)
+                    .where(eq(files.isDeleted, true));
+
+                for (const item of trashItems) {
+                    if (!item.isFolder && item.storagePath) {
+                        filesToDeleteFromS3.push(item.storagePath);
+                    }
+                }
+
+                if (trashItems.length > 0) {
+                    const trashIds = trashItems.map(item => item.id);
+                    await tx.delete(files).where(inArray(files.id, trashIds));
+                }
+            });
+        } catch (error: any) {
+            set.status = 500;
+            return { message: `Database error: ${error.message}` };
         }
 
-        if (trashItems.length > 0) {
-            const trashIds = trashItems.map(item => item.id);
-            await db.delete(files).where(inArray(files.id, trashIds));
+        // Physical deletion occurs after successful database commit
+        for (const path of filesToDeleteFromS3) {
+            await deletePhysicalFile(path);
         }
 
         return { message: "Trash emptied" };

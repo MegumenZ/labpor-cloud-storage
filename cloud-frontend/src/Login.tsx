@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Cloud, Lock, User, ArrowRight, Loader2 } from "lucide-react";
+import { Cloud, Lock, User, ArrowRight, Loader2, Eye, EyeOff } from "lucide-react";
 import api from "./api";
 
 interface LoginProps {
@@ -13,6 +13,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,7 +85,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           <form onSubmit={handleSubmit} className="space-y-4">
             {isRegister && (
               <div className="animate-in slide-in-from-top-3 duration-300">
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">
+                <label htmlFor="login-displayname" className="block text-xs font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">
                   Nama Tampilan
                 </label>
                 <div className="relative">
@@ -93,6 +94,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     size={18}
                   />
                   <input
+                    id="login-displayname"
                     type="text"
                     required
                     value={displayName}
@@ -105,7 +107,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">
+              <label htmlFor="login-username" className="block text-xs font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">
                 Username
               </label>
               <div className="relative">
@@ -114,6 +116,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   size={18}
                 />
                 <input
+                  id="login-username"
                   type="text"
                   required
                   value={username}
@@ -125,7 +128,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">
+              <label htmlFor="login-password" className="block text-xs font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">
                 Password
               </label>
               <div className="relative">
@@ -134,13 +137,22 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   size={18}
                 />
                 <input
-                  type="password"
+                  id="login-password"
+                  type={showPassword ? "text" : "password"}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 text-white placeholder-slate-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white/10 focus:border-blue-400/50 transition-all duration-300"
+                  className="w-full pl-10 pr-12 py-3 bg-white/5 border border-white/10 text-white placeholder-slate-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white/10 focus:border-blue-400/50 transition-all duration-300"
                   placeholder="Masukkan password"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-3 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 

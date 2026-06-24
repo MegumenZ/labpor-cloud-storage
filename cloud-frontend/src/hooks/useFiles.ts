@@ -13,12 +13,35 @@ export interface UploadingFile {
 export function useFiles(
   isAuthenticated: boolean,
   isStorageOnline: boolean,
-  refreshStorageInfo: () => Promise<void>
+  refreshStorageInfo: () => Promise<void>,
+  storageUsed: number,
+  storageLimit: number
 ) {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [folderStack, setFolderStack] = useState<{ id: string; name: string }[]>([]);
+  const [storageErrorConfig, setStorageErrorConfig] = useState<{ fileSize: number; availableStorage: number; limit: number; absoluteMax?: boolean } | null>(null);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("folder");
+  });
+  const [folderStack, setFolderStack] = useState<{ id: string; name: string }[]>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const folderId = params.get("folder");
+    if (!folderId) return [];
+
+    try {
+      const stored = sessionStorage.getItem("folderStack");
+      if (stored) {
+        const parsed = JSON.parse(stored) as { id: string; name: string }[];
+        if (parsed.length > 0 && parsed[parsed.length - 1].id === folderId) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return [{ id: folderId, name: "Folder" }];
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"files" | "trash" | "favorites">("files");
 
@@ -29,9 +52,15 @@ export function useFiles(
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
 
   // Modal States
-  const [fileToDelete, setFileToDelete] = useState<string | null>(null);
+  const [confirmDeleteConfig, setConfirmDeleteConfig] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    onConfirm: () => void;
+  } | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [filesToMove, setFilesToMove] = useState<FileItem[]>([]);
+  const [fileToRename, setFileToRename] = useState<FileItem | null>(null);
   const [fileProperties, setFileProperties] = useState<FileItem | null>(null);
   const [isNewFolderOpen, setIsNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -94,6 +123,38 @@ export function useFiles(
     handleClearSelection();
   }, [currentFolderId, viewMode, searchQuery, handleClearSelection]);
 
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const folderId = params.get("folder");
+      setCurrentFolderId(folderId);
+
+      if (folderId === null) {
+        setFolderStack([]);
+      } else {
+        try {
+          const stored = sessionStorage.getItem("folderStack");
+          if (stored) {
+            const parsed = JSON.parse(stored) as { id: string; name: string }[];
+            const idx = parsed.findIndex((item) => item.id === folderId);
+            if (idx !== -1) {
+              setFolderStack(parsed.slice(0, idx + 1));
+              return;
+            }
+          }
+        } catch (e) {
+          console.error(e);
+        }
+        setFolderStack([{ id: folderId, name: "Folder" }]);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
+
   const performUpload = async (file: globalThis.File) => {
     if (!isStorageOnline) {
       toast.error("Layanan penyimpanan sedang terganggu. Unggahan dibatalkan.");
@@ -102,7 +163,23 @@ export function useFiles(
 
     const MAX_SIZE = 500 * 1024 * 1024 * 1024; // 500GB
     if (file.size > MAX_SIZE) {
-      toast.error("Ukuran berkas melebihi batas maksimal 500GB!");
+      setStorageErrorConfig({
+        fileSize: file.size,
+        availableStorage: storageLimit - storageUsed,
+        limit: storageLimit,
+        absoluteMax: true,
+      });
+      return;
+    }
+
+    const availableStorage = storageLimit - storageUsed;
+    if (file.size > availableStorage) {
+      setStorageErrorConfig({
+        fileSize: file.size,
+        availableStorage,
+        limit: storageLimit,
+        absoluteMax: false,
+      });
       return;
     }
 
@@ -189,32 +266,6 @@ export function useFiles(
     }
   };
 
-  const handleDelete = async () => {
-    if (fileToDelete) {
-      const isPermanent = viewMode === "trash";
-      const toastId = toast.loading(
-        isPermanent ? "Menghapus permanen..." : "Memindahkan ke Trash..."
-      );
-      try {
-        await api.delete(`/files/${fileToDelete}`, {
-          params: { permanent: isPermanent },
-        });
-        setFileToDelete(null);
-        fetchFiles();
-        toast.success(
-          isPermanent
-            ? "Berkas dihapus secara permanen!"
-            : "Berkas dipindahkan ke Trash",
-          { id: toastId }
-        );
-        refreshStorageInfo();
-      } catch (err) {
-        console.error(err);
-        toast.error("Gagal menghapus berkas", { id: toastId });
-      }
-    }
-  };
-
   const handleRestore = async (id: string) => {
     const toastId = toast.loading("Memulihkan berkas...");
     try {
@@ -228,38 +279,31 @@ export function useFiles(
     }
   };
 
-  const handleEmptyTrash = async () => {
-    if (
-      confirm(
-        "Apakah Anda yakin ingin menghapus permanen semua item di dalam Trash?"
-      )
-    ) {
-      const toastId = toast.loading("Mengosongkan Trash...");
-      try {
-        await api.delete("/files/trash");
-        fetchFiles();
-        toast.success("Trash berhasil dikosongkan!", { id: toastId });
-        refreshStorageInfo();
-      } catch (err) {
-        console.error(err);
-        toast.error("Gagal mengosongkan Trash", { id: toastId });
+  const handleEmptyTrash = () => {
+    setConfirmDeleteConfig({
+      title: "Kosongkan Trash?",
+      description: "Apakah Anda yakin ingin menghapus permanen semua item di dalam Trash? Tindakan ini tidak dapat dibatalkan.",
+      confirmLabel: "Hapus Permanen",
+      onConfirm: async () => {
+        const toastId = toast.loading("Mengosongkan Trash...");
+        try {
+          await api.delete("/files/trash");
+          fetchFiles();
+          toast.success("Trash berhasil dikosongkan!", { id: toastId });
+          refreshStorageInfo();
+        } catch (err) {
+          console.error(err);
+          toast.error("Gagal mengosongkan Trash", { id: toastId });
+        } finally {
+          setConfirmDeleteConfig(null);
+        }
       }
-    }
+    });
   };
 
   const handleDownload = async (f: FileItem) => {
     const toastId = toast.loading(`Mengunduh "${f.name}"...`);
     try {
-      if (f.downloadUrl) {
-        const link = document.createElement("a");
-        link.href = f.downloadUrl;
-        link.setAttribute("download", f.name);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        toast.success(`Selesai mengunduh "${f.name}"`, { id: toastId });
-        return;
-      }
       const res = await api.get(`/files/${f.id}/download`, {
         responseType: "blob",
       });
@@ -270,6 +314,7 @@ export function useFiles(
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
       toast.success(`Selesai mengunduh "${f.name}"`, { id: toastId });
     } catch (err) {
       console.error(err);
@@ -277,19 +322,8 @@ export function useFiles(
     }
   };
 
-  const handleRename = async (f: FileItem) => {
-    const name = prompt("Nama Baru:", f.name);
-    if (name && name !== f.name) {
-      const toastId = toast.loading("Mengubah nama...");
-      try {
-        await api.put(`/files/${f.id}/rename`, { newName: name });
-        fetchFiles();
-        toast.success("Nama berkas berhasil diubah!", { id: toastId });
-      } catch (err) {
-        console.error(err);
-        toast.error("Gagal mengubah nama berkas", { id: toastId });
-      }
-    }
+  const handleRename = (f: FileItem) => {
+    setFileToRename(f);
   };
 
   const handleToggleFavorite = async (file: FileItem) => {
@@ -341,6 +375,11 @@ export function useFiles(
     if (mode !== "files") {
       setCurrentFolderId(null);
       setFolderStack([]);
+      sessionStorage.removeItem("folderStack");
+
+      const url = new URL(window.location.href);
+      url.searchParams.delete("folder");
+      window.history.pushState({ folderId: null }, "", url.pathname + url.search);
     }
   };
 
@@ -374,32 +413,36 @@ export function useFiles(
     });
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     if (selectedIds.size === 0) return;
     const isPermanent = viewMode === "trash";
-    const confirmMsg = isPermanent
-      ? `Apakah Anda yakin ingin menghapus permanen ${selectedIds.size} item terpilih?`
-      : `Pindahkan ${selectedIds.size} item terpilih ke Trash?`;
-
-    if (confirm(confirmMsg)) {
-      const toastId = toast.loading(`Menghapus ${selectedIds.size} elemen terpilih...`);
-      setLoading(true);
-      try {
-        await Promise.all(
-          Array.from(selectedIds).map((id) =>
-            api.delete(`/files/${id}`, { params: { permanent: isPermanent } })
-          )
-        );
-        handleClearSelection();
-        fetchFiles();
-        toast.success("Item terpilih berhasil dihapus", { id: toastId });
-        refreshStorageInfo();
-      } catch {
-        toast.error("Beberapa berkas gagal dihapus.", { id: toastId });
-      } finally {
-        setLoading(false);
+    setConfirmDeleteConfig({
+      title: isPermanent ? "Hapus Permanen?" : "Pindahkan ke Trash?",
+      description: isPermanent
+        ? `Apakah Anda yakin ingin menghapus permanen ${selectedIds.size} item terpilih? Tindakan ini tidak dapat dibatalkan.`
+        : `Apakah Anda yakin ingin memindahkan ${selectedIds.size} item terpilih ke Trash? Anda masih dapat memulihkannya nanti.`,
+      confirmLabel: isPermanent ? "Hapus Permanen" : "Pindahkan",
+      onConfirm: async () => {
+        const toastId = toast.loading(`Menghapus ${selectedIds.size} elemen terpilih...`);
+        setLoading(true);
+        try {
+          await Promise.all(
+            Array.from(selectedIds).map((id) =>
+              api.delete(`/files/${id}`, { params: { permanent: isPermanent } })
+            )
+          );
+          handleClearSelection();
+          fetchFiles();
+          toast.success("Item terpilih berhasil dihapus", { id: toastId });
+          refreshStorageInfo();
+        } catch {
+          toast.error("Beberapa berkas gagal dihapus.", { id: toastId });
+        } finally {
+          setLoading(false);
+          setConfirmDeleteConfig(null);
+        }
       }
-    }
+    });
   };
 
   const handleBulkDownload = async () => {
@@ -423,25 +466,17 @@ export function useFiles(
     for (let i = 0; i < selectedOnlyFiles.length; i++) {
       const f = selectedOnlyFiles[i];
       try {
-        if (f.downloadUrl) {
-          const link = document.createElement("a");
-          link.href = f.downloadUrl;
-          link.setAttribute("download", f.name);
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-        } else {
-          const res = await api.get(`/files/${f.id}/download`, {
-            responseType: "blob",
-          });
-          const url = window.URL.createObjectURL(new Blob([res.data]));
-          const link = document.createElement("a");
-          link.href = url;
-          link.setAttribute("download", f.name);
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-        }
+        const res = await api.get(`/files/${f.id}/download`, {
+          responseType: "blob",
+        });
+        const url = window.URL.createObjectURL(new Blob([res.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", f.name);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
         await new Promise((resolve) => setTimeout(resolve, 300));
       } catch (err) {
         console.error(`Failed to download ${f.name}:`, err);
@@ -452,8 +487,10 @@ export function useFiles(
 
   const handleNavigate = (folderId: string | null) => {
     setCurrentFolderId(folderId);
+    let nextStack: { id: string; name: string }[] = [];
     if (folderId === null) {
       setFolderStack([]);
+      sessionStorage.removeItem("folderStack");
     } else {
       const folder =
         folderStack.find((f) => f.id === folderId) ||
@@ -461,22 +498,70 @@ export function useFiles(
       if (folder) {
         const index = folderStack.findIndex((f) => f.id === folderId);
         if (index !== -1) {
-          setFolderStack(folderStack.slice(0, index + 1));
+          nextStack = folderStack.slice(0, index + 1);
         } else {
-          setFolderStack([...folderStack, { id: folder.id, name: folder.name }]);
+          nextStack = [...folderStack, { id: folder.id, name: folder.name }];
         }
+      } else {
+        nextStack = [{ id: folderId, name: "Folder" }];
       }
+      setFolderStack(nextStack);
+      sessionStorage.setItem("folderStack", JSON.stringify(nextStack));
     }
+
+    const url = new URL(window.location.href);
+    if (folderId) {
+      url.searchParams.set("folder", folderId);
+    } else {
+      url.searchParams.delete("folder");
+    }
+    window.history.pushState({ folderId }, "", url.pathname + url.search);
   };
 
   const handleEnterFolder = (f: FileItem) => {
     setCurrentFolderId(f.id);
-    setFolderStack([...folderStack, { id: f.id, name: f.name }]);
+    const nextStack = [...folderStack, { id: f.id, name: f.name }];
+    setFolderStack(nextStack);
+    sessionStorage.setItem("folderStack", JSON.stringify(nextStack));
     setViewMode("files");
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("folder", f.id);
+    window.history.pushState({ folderId: f.id }, "", url.pathname + url.search);
   };
 
   const handleDeleteRequest = (id: string) => {
-    setFileToDelete(id);
+    const isPermanent = viewMode === "trash";
+    setConfirmDeleteConfig({
+      title: isPermanent ? "Hapus Permanen?" : "Pindahkan ke Trash?",
+      description: isPermanent
+        ? "Apakah Anda yakin ingin menghapus item ini secara permanen? Tindakan ini tidak dapat dibatalkan."
+        : "Apakah Anda yakin ingin memindahkan item ini ke Trash? Anda masih dapat memulihkannya nanti.",
+      confirmLabel: isPermanent ? "Hapus Permanen" : "Pindahkan",
+      onConfirm: async () => {
+        const toastId = toast.loading(
+          isPermanent ? "Menghapus permanen..." : "Memindahkan ke Trash..."
+        );
+        try {
+          await api.delete(`/files/${id}`, {
+            params: { permanent: isPermanent },
+          });
+          fetchFiles();
+          toast.success(
+            isPermanent
+              ? "Berkas dihapus secara permanen!"
+              : "Berkas dipindahkan ke Trash",
+            { id: toastId }
+          );
+          refreshStorageInfo();
+        } catch (err) {
+          console.error(err);
+          toast.error("Gagal menghapus berkas", { id: toastId });
+        } finally {
+          setConfirmDeleteConfig(null);
+        }
+      }
+    });
   };
 
   const showProperties = (file: FileItem) => {
@@ -516,18 +601,22 @@ export function useFiles(
     selectedIds,
 
     // Modals visibility / target states
-    fileToDelete,
-    setFileToDelete,
+    confirmDeleteConfig,
+    setConfirmDeleteConfig,
     selectedFile,
     setSelectedFile,
     filesToMove,
     setFilesToMove,
+    fileToRename,
+    setFileToRename,
     fileProperties,
     setFileProperties,
     isNewFolderOpen,
     setIsNewFolderOpen,
     newFolderName,
     setNewFolderName,
+    storageErrorConfig,
+    setStorageErrorConfig,
 
     // Drag-n-drop state
     isDragging,
@@ -542,7 +631,6 @@ export function useFiles(
     handleUploadInput,
     handleCreateFolder,
     onCreateFolderSubmit,
-    handleDelete,
     handleRestore,
     handleEmptyTrash,
     handleDownload,

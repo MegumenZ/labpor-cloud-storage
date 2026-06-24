@@ -11,6 +11,7 @@ import type { FileItem } from "../../types";
 import api from "../../api";
 import { DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 interface MoveModalProps {
   files: FileItem[];
@@ -62,7 +63,7 @@ export default function MoveModal({
       onClose();
     } catch (err) {
       const errMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message || "Gagal memindahkan beberapa berkas.";
-      alert(errMsg);
+      toast.error(errMsg);
     } finally {
       setMoving(false);
     }
