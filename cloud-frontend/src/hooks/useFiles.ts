@@ -7,6 +7,7 @@ export interface UploadingFile {
   id: string;
   name: string;
   progress: number;
+  statusText?: string;
   controller: AbortController;
 }
 
@@ -156,6 +157,10 @@ export function useFiles(
   }, []);
 
   const performUpload = async (file: globalThis.File) => {
+    if (viewMode !== "files") {
+      toast.error(`Tidak dapat mengunggah berkas di menu ${viewMode === "trash" ? "Sampah" : "Favorit"}.`);
+      return;
+    }
     if (!isStorageOnline) {
       toast.error("Layanan penyimpanan sedang terganggu. Unggahan dibatalkan.");
       return;
@@ -186,34 +191,48 @@ export function useFiles(
     const uploadId = crypto.randomUUID();
     const controller = new AbortController();
     const tempUrl = URL.createObjectURL(file);
-    const formData = new FormData();
-    formData.append("file", file);
-    if (currentFolderId) formData.append("parentId", currentFolderId);
 
     // Tambahkan ke antrean upload
     setUploadingFiles((prev) => [
       ...prev,
-      { id: uploadId, name: file.name, progress: 0, controller },
+      { id: uploadId, name: file.name, progress: 0, statusText: "Menyiapkan unggahan...", controller },
     ]);
 
     try {
-      const res = await api.post("/files/upload", formData, {
+      const res = await api.post("/files/stream-upload", file, {
+        headers: {
+          "Content-Type": file.type || "application/octet-stream",
+          "X-File-Name": encodeURIComponent(file.name),
+          "X-Parent-Id": currentFolderId || "",
+        },
         withCredentials: true,
         signal: controller.signal,
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
             const percentCompleted = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total
+              (progressEvent.loaded * 95) / progressEvent.total
             );
+            const statusText = percentCompleted >= 95 
+              ? "Menyimpan berkas..." 
+              : `Mengunggah... ${percentCompleted}%`;
+
             setUploadingFiles((prev) =>
               prev.map((f) =>
-                f.id === uploadId ? { ...f, progress: percentCompleted } : f
+                f.id === uploadId ? { ...f, progress: percentCompleted, statusText } : f
               )
             );
           }
         },
       });
-      const newFile = { ...res.data.data, previewUrl: tempUrl };
+
+      // Update ke 100% Selesai HANYA SETELAH backend membalas HTTP 200 OK!
+      setUploadingFiles((prev) =>
+        prev.map((f) =>
+          f.id === uploadId ? { ...f, progress: 100, statusText: "Selesai!" } : f
+        )
+      );
+
+      const newFile = res.data.data;
       setFiles((prev) => [newFile, ...prev]);
       toast.success(`Berkas "${file.name}" berhasil diunggah!`);
       refreshStorageInfo();
@@ -227,6 +246,7 @@ export function useFiles(
         toast.error(message);
       }
     } finally {
+      URL.revokeObjectURL(tempUrl);
       // Hapus dari antrean upload
       setUploadingFiles((prev) => prev.filter((f) => f.id !== uploadId));
     }
@@ -240,6 +260,10 @@ export function useFiles(
   };
 
   const handleCreateFolder = () => {
+    if (viewMode !== "files") {
+      toast.error(`Tidak dapat membuat folder di menu ${viewMode === "trash" ? "Sampah" : "Favorit"}.`);
+      return;
+    }
     setNewFolderName("");
     setIsNewFolderOpen(true);
   };

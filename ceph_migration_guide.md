@@ -22,7 +22,7 @@ graph TD
     Client["Klien (Browser Web)"]:::appBox
 
     %% VM 1: ceph-admin (Server Aplikasi & Utama)
-    subgraph Host1 ["VM 1: ceph-admin (100.68.13.84)"]
+    subgraph Host1 ["VM 1: ceph-admin (100.83.191.96)"]
         Nginx["Nginx Reverse Proxy (Port 443)"]:::appBox
         Backend["Aplikasi Backend (Bun/ElysiaJS - Port 3001)"]:::appBox
         DB[("Database PostgreSQL")]:::dbBox
@@ -31,12 +31,12 @@ graph TD
     end
 
     %% VM 2: ceph-node1 (Storage Node 1)
-    subgraph Host2 ["VM 2: ceph-node1 (100.71.47.41)"]
+    subgraph Host2 ["VM 2: ceph-node1 (100.125.254.99)"]
         OSD1["OSD 1 (Disk: /dev/sdb)"]:::hostBox
     end
 
     %% VM 3: ceph-node2 (Storage Node 2)
-    subgraph Host3 ["VM 3: ceph-node2 (100.75.133.14)"]
+    subgraph Host3 ["VM 3: ceph-node2 (100.112.76.118)"]
         OSD2["OSD 2 (Disk: /dev/sdb)"]:::hostBox
     end
 
@@ -52,20 +52,27 @@ graph TD
     RGW -->|"5c. Simpan Chunk P1 (via Tailscale)"| OSD2
 ```
 
-### 1.2. Spesifikasi Node & Alokasi IP
-Setiap VM dikonfigurasikan dengan **dua disk**: satu disk utama untuk OS (`/dev/sda`) dan satu disk tambahan kosong (`/dev/sdb` berkapasitas 25GB-50GB, unformatted) khusus untuk penyimpanan Ceph OSD.
+#### 1.2. Spesifikasi Node & Alokasi IP
+Untuk menjalankan kluster simulasi ini secara stabil di komputer host dengan RAM 16 GB, disarankan menggunakan spesifikasi VM teroptimasi berikut:
 
 1.  **ceph-admin (VM1)**:
-    *   IP Lokal (Fisik): Tergantung DHCP Router (misalnya `192.168.100.65`)
-    *   IP Tailscale (Statis): `100.68.13.84`
+    *   **CPU / RAM Fisik VM**: **2 Core / 6 GB** (Sangat disarankan untuk menampung kombinasi Bun Backend + PostgreSQL + OpenSearch + Ceph Services).
+    *   **Swap File**: **8 GB** (Dengan setelan `vm.swappiness=10` untuk mengamankan RAM saat proses upload berkas besar tanpa merusak SSD).
+    *   **Penyimpanan**: Disk OS `/dev/sda` berkapasitas **50 GB** (Wajib agar Ceph Monitor tidak memicu warning `low on available space`) dan Disk OSD `/dev/sdb` berkapasitas **100 GB** (unformatted).
+    *   IP Lokal (Fisik): Tergantung DHCP Router (misalnya `192.168.100.70`)
+    *   IP Tailscale (Statis): `100.83.191.96`
     *   Peran: Ceph Manager (MGR), Monitor (MON 0), S3 RGW Gateway, OpenSearch, Nginx Reverse Proxy, Bun Backend, PostgreSQL Database, Ceph OSD 0.
 2.  **ceph-node1 (VM2)**:
-    *   IP Lokal (Fisik): Tergantung DHCP Router (misalnya `192.168.100.66`)
-    *   IP Tailscale (Statis): `100.71.47.41`
+    *   **CPU / RAM Fisik VM**: **2 Core / 2 GB** (Ditambah **2 GB Swap File** dengan `vm.swappiness=10` agar OSD tidak mengalami CPU soft lockup saat menerima pecahan data besar).
+    *   **Penyimpanan**: Disk OS `/dev/sda` berkapasitas **25 GB** dan Disk OSD `/dev/sdb` berkapasitas **100 GB** (unformatted).
+    *   IP Lokal (Fisik): Tergantung DHCP Router (misalnya `192.168.100.71`)
+    *   IP Tailscale (Statis): `100.125.254.99`
     *   Peran: Ceph Monitor (MON 1), Storage Node Ceph OSD 1.
 3.  **ceph-node2 (VM3)**:
-    *   IP Lokal (Fisik): Tergantung DHCP Router (misalnya `192.168.100.67`)
-    *   IP Tailscale (Statis): `100.75.133.14`
+    *   **CPU / RAM Fisik VM**: **2 Core / 2 GB** (Ditambah **2 GB Swap File** dengan `vm.swappiness=10`).
+    *   **Penyimpanan**: Disk OS `/dev/sda` berkapasitas **25 GB** dan Disk OSD `/dev/sdb` berkapasitas **100 GB** (unformatted).
+    *   IP Lokal (Fisik): Tergantung DHCP Router (misalnya `192.168.100.72`)
+    *   IP Tailscale (Statis): `100.112.76.118`
     *   Peran: Ceph Monitor (MON 2), Storage Node Ceph OSD 2.
 
 ---
@@ -73,6 +80,10 @@ Setiap VM dikonfigurasikan dengan **dua disk**: satu disk utama untuk OS (`/dev/
 ## 2. Persiapan Sistem & Jaringan (Jalankan di Semua Node)
 
 Langkah awal ini bertujuan untuk menyamakan sistem operasi, mengonfigurasi keamanan jaringan, serta memastikan sinkronisasi waktu yang ketat antar node VM sebelum kluster dideploy.
+
+> [!IMPORTANT]
+> **Persyaratan Antarmuka Jaringan VirtualBox (Bridged Adapter)**
+> Sebelum menyalakan dan mengonfigurasi VM, pastikan pengaturan jaringan pada VirtualBox Manager untuk ketiga VM disetel ke **Bridged Adapter** (pada menu *Settings -> Network -> Adapter 1 -> Attached to: Bridged Adapter*). Pilih kartu jaringan aktif pada komputer host Anda (Wi-Fi atau Ethernet) agar setiap VM mendapatkan alamat IP lokal yang sah secara langsung dari DHCP router fisik Anda.
 
 ### 2.1. Pembaruan Sistem Operasi
 Perbarui seluruh repositori dan paket sistem ke versi terbaru untuk menjaga stabilitas kernel Linux:
@@ -115,9 +126,9 @@ sudo nano /etc/hosts
 ```
 Tambahkan baris berikut di bagian paling bawah file:
 ```text
-100.68.13.84 ceph-admin
-100.71.47.41 ceph-node1
-100.75.133.14 ceph-node2
+100.83.191.96 ceph-admin
+100.125.254.99 ceph-node1
+100.112.76.118 ceph-node2
 ```
 
 ### 2.5. Sinkronisasi Waktu Menggunakan Chrony (NTP)
@@ -149,7 +160,7 @@ sudo nano /etc/chrony/chrony.conf
 ```
 Hapus atau beri tanda komentar (`#`) pada baris server bawaan Ubuntu (pool.ntp.org), lalu tambahkan IP Tailscale VM1 sebagai satu-satunya rujukan waktu:
 ```text
-server 100.68.13.84 iburst
+server 100.83.191.96 iburst
 ```
 Restart layanan Chrony:
 ```bash
@@ -166,6 +177,44 @@ Cephadm mendeploy seluruh layanan Ceph (seperti Monitor, Manager, RGW) di dalam 
 ```bash
 sudo apt install -y docker.io
 sudo systemctl enable --now docker
+```
+
+### 2.7. Konfigurasi Swap File pada Seluruh Node (Pencegahan OOM)
+Untuk mengantisipasi crash sistem akibat kehabisan memori (*Out-of-Memory*), kita mengonfigurasikan memori virtual tambahan berupa *Swap File* di seluruh node.
+* **VM1 (ceph-admin)** dialokasikan swap sebesar **8 GB** karena menjalankan backend Elysia/Bun, PostgreSQL, kluster Ceph manager/monitor, serta tumpukan OpenSearch.
+* **VM2 (ceph-node1)** dan **VM3 (ceph-node2)** dialokasikan swap sebesar **2 GB** sebagai langkah pengaman agar daemon OSD tidak mengalami CPU/memory soft lockup saat memproses pemecahan data besar.
+* Parameter `swappiness` disetel rendah ke angka **10** di semua node agar sistem hanya menulis ke disk SSD komputer host saat memori fisik benar-benar habis (RAM terpakai > 90%).
+
+#### Langkah Konfigurasi VM1 (ceph-admin) - Swap 8 GB:
+```bash
+# Buat file swap 8 GB
+sudo fallocate -l 8G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# Daftarkan secara permanen di fstab
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# Atur parameter swappiness ke 10
+sudo sysctl vm.swappiness=10
+echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf
+```
+
+#### Langkah Konfigurasi VM2 (ceph-node1) & VM3 (ceph-node2) - Swap 2 GB:
+```bash
+# Buat file swap 2 GB
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# Daftarkan secara permanen di fstab
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# Atur parameter swappiness ke 10
+sudo sysctl vm.swappiness=10
+echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf
 ```
 
 ---
@@ -202,9 +251,9 @@ sudo ssh-keygen -t rsa -b 4096 -N "" -f /root/.ssh/id_rsa
 ### 4.2. Salin Kunci SSH Root ke Semua VM
 Salin kunci publik yang baru dibuat ke semua VM agar `ceph-admin` dapat masuk ke VM1, VM2, dan VM3 tanpa meminta password:
 ```bash
-sudo ssh-copy-id root@100.68.13.84
-sudo ssh-copy-id root@100.71.47.41
-sudo ssh-copy-id root@100.75.133.14
+sudo ssh-copy-id root@100.83.191.96
+sudo ssh-copy-id root@100.125.254.99
+sudo ssh-copy-id root@100.112.76.118
 ```
 *Catatan: Anda akan diminta memasukkan password root masing-masing VM yang telah dibuat pada langkah 2.2.*
 
@@ -223,18 +272,25 @@ CEPH_RELEASE=20.2.1
 curl --silent --remote-name --location https://download.ceph.com/rpm-${CEPH_RELEASE}/el9/noarch/cephadm
 chmod +x cephadm
 
-sudo ./cephadm add-repo --release tentacle
-sudo ./cephadm install
+# Tambahkan kunci GPG Ceph secara manual dalam format de-armored (biner)
+curl -fsSL https://download.ceph.com/keys/release.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/ceph.gpg
+
+# Daftarkan repositori Ceph secara manual ke daftar sumber APT
+echo "deb [signed-by=/etc/apt/trusted.gpg.d/ceph.gpg] https://download.ceph.com/debian-tentacle jammy main" | sudo tee /etc/apt/sources.list.d/ceph.list
+
+# Perbarui paket dan pasang cephadm
+sudo apt update
+sudo apt install -y cephadm
 ```
 
 ### 5.2. Bootstrap Kluster Baru
 Lakukan bootstrap kluster menggunakan IP Tailscale `ceph-admin`. Kita wajib menyertakan flag `--skip-mon-network` karena subnet mask ip Tailscale bernilai `/32` yang secara default akan ditolak oleh sistem pemeriksa jaringan otomatis Ceph:
 ```bash
 sudo cephadm bootstrap \
-  --mon-ip 100.68.13.84 \
+  --mon-ip 100.83.191.96 \
   --skip-mon-network \
   --initial-dashboard-user admin \
-  --initial-dashboard-password SandiRahasiaCeph123!
+  --initial-dashboard-password SandiLabproCeph123!
 ```
 
 ### 5.3. Konfigurasi Jaringan Publik Ceph
@@ -261,16 +317,16 @@ Jalankan seluruh perintah berikut di terminal `ceph-admin`:
 Cephadm memiliki kunci SSH internal khusus untuk manajemen kontainer. Salin kunci publik internal tersebut ke seluruh VM agar orkestrator dapat mendeploy daemon secara remote:
 ```bash
 sudo ceph cephadm get-pub-key > ~/ceph.pub
-sudo ssh-copy-id -f -i ~/ceph.pub root@100.68.13.84
-sudo ssh-copy-id -f -i ~/ceph.pub root@100.71.47.41
-sudo ssh-copy-id -f -i ~/ceph.pub root@100.75.133.14
+sudo ssh-copy-id -f -i ~/ceph.pub root@100.83.191.96
+sudo ssh-copy-id -f -i ~/ceph.pub root@100.125.254.99
+sudo ssh-copy-id -f -i ~/ceph.pub root@100.112.76.118
 ```
 
 ### 6.2. Daftarkan Host Anggota ke Orkestrator
 Daftarkan `ceph-node1` dan `ceph-node2` menggunakan alamat IP Tailscale mereka:
 ```bash
-sudo ceph orch host add ceph-node1 100.71.47.41
-sudo ceph orch host add ceph-node2 100.75.133.14
+sudo ceph orch host add ceph-node1 100.125.254.99
+sudo ceph orch host add ceph-node2 100.112.76.118
 ```
 
 ### 6.3. Verifikasi Daftar Host
@@ -409,8 +465,8 @@ s3cmd --configure
 ```
 Isi parameter interaktif sebagai berikut:
 *   **Access Key & Secret Key**: Masukkan kredensial dari langkah 9.1.
-*   **S3 Endpoint**: `100.68.13.84:8000` (IP Tailscale VM1 port RGW).
-*   **DNS-style bucket format**: `100.68.13.84:8000/%(bucket)s` (Wajib, karena RGW kita tidak menggunakan DNS subdomain).
+*   **S3 Endpoint**: `100.83.191.96:8000` (IP Tailscale VM1 port RGW).
+*   **DNS-style bucket format**: `100.83.191.96:8000/%(bucket)s` (Wajib, karena RGW kita tidak menggunakan DNS subdomain).
 *   **Use HTTPS**: `no`
 
 #### 3. Sesuaikan Signature API Manual
@@ -573,23 +629,28 @@ sudo -u postgres psql -c "CREATE DATABASE skripsi_cloud OWNER postgres;"
 1.  Di komputer lokal (laptop) Anda, jalankan proses build produksi dengan mengarahkan base API ke alamat IP Tailscale VM:
     ```powershell
     # PowerShell Komputer Lokal (Laptop)
-    $env:VITE_API_BASE_URL="https://100.68.13.84"
+    $env:VITE_API_BASE_URL="https://100.83.191.96"
     npm run build
     ```
-2.  Unggah folder hasil build (`dist/`) ke VM1 menggunakan perintah SCP:
+2.  Buat direktori tujuan di VM1 dan unggah isi folder hasil build (`dist/`) dari laptop menggunakan perintah SCP:
     ```powershell
     # PowerShell Komputer Lokal (Laptop)
-    scp -r dist/ root@100.68.13.84:/var/www/labpro-storage/
+    scp -r dist/* root@100.83.191.96:/var/www/labpro-storage/dist/
     ```
 
 ### 11.3. Deploy Backend (Bun / ElysiaJS)
 1.  Unggah kode sumber backend ke VM1:
     ```powershell
     # PowerShell Komputer Lokal (Laptop)
-    scp -r cloud-backend/ root@100.68.13.84:/root/
+    scp -r cloud-backend/ root@100.83.191.96:/root/
     ```
 2.  Masuk ke SSH VM1, pasang modul dependensi, dan sinkronisasikan skema tabel database PostgreSQL menggunakan Drizzle ORM:
     ```bash
+    # Pasang runtime Bun di VM1
+    sudo apt install -y unzip
+    curl -fsSL https://bun.sh/install | bash
+    export PATH="/root/.bun/bin:$PATH"
+
     cd /root/cloud-backend
     bun install
     bun run db:push
@@ -599,7 +660,7 @@ sudo -u postgres psql -c "CREATE DATABASE skripsi_cloud OWNER postgres;"
     NODE_ENV="production"
     DATABASE_URL="postgres://postgres:123456789@127.0.0.1:5432/skripsi_cloud"
     JWT_SECRET="rahasia_jwt_sangat_panjang_dan_aman_labpro"
-    FRONTEND_URL="https://100.68.13.84"
+    FRONTEND_URL="https://100.83.191.96"
     PORT=3001
     
     # Kredensial RGW S3
@@ -656,14 +717,14 @@ Buat file konfigurasi baru di `/etc/nginx/sites-available/labpro-storage`:
 server {
     listen 80;
     listen [::]:80;
-    server_name 100.68.13.84;
+    server_name 100.83.191.96;
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
-    server_name 100.68.13.84;
+    server_name 100.83.191.96;
 
     ssl_certificate /etc/ssl/certs/nginx-selfsigned.crt;
     ssl_certificate_key /etc/ssl/private/nginx-selfsigned.key;
@@ -678,6 +739,18 @@ server {
         root /var/www/labpro-storage/dist;
         index index.html;
         try_files $uri $uri/ /index.html;
+    }
+
+    # Proxy Ceph S3 RGW (Pencegahan Mixed Content HTTPS -> HTTP)
+    location /s3/ {
+        proxy_pass http://127.0.0.1:8000/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host:8000;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_connect_timeout 86400s;
+        proxy_send_timeout    86400s;
+        proxy_read_timeout    86400s;
     }
 
     # Proxy API Auth Backend
@@ -714,7 +787,7 @@ server {
 #### 3. Aktifkan Konfigurasi & Restart Nginx
 ```bash
 # Buat symlink aktif
-sudo ln -s /etc/nginx/sites-available/labpro-storage /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/labpro-storage /etc/nginx/sites-enabled/
 # Hapus default page bawaan Nginx agar tidak konflik
 sudo rm -f /etc/nginx/sites-enabled/default
 
@@ -723,7 +796,7 @@ sudo nginx -t
 # Restart Nginx
 sudo systemctl restart nginx
 ```
-Aplikasi web sekarang sudah dapat diakses dengan aman di browser host Anda menggunakan alamat **`https://100.68.13.84`**.
+Aplikasi web sekarang sudah dapat diakses dengan aman di browser host Anda menggunakan alamat **`https://100.83.191.96`**.
 
 ---
 
@@ -752,6 +825,41 @@ Berikut adalah kendala-kendala umum yang ditemui beserta solusinya:
 *   **Solusi**:
     1.  Pastikan konfigurasi kartu jaringan di dalam sistem Linux VM disetel menggunakan **DHCP (Automatic)**, bukan IP statis. Ini memastikan VM selalu mendapatkan akses internet di mana pun Mini PC terhubung.
     2.  Pastikan semua konfigurasi kluster Ceph, backend, dan frontend diikat ke **IP Tailscale (`100.X.X.X`)**. Karena IP Tailscale tidak akan berubah meskipun IP lokal fisik VM berubah, kluster Anda akan langsung terhubung secara otomatis di jaringan mana pun.
+
+### 12.5. Backend Bun Crash Terkena OOM (Out of Memory) Saat Mengunggah Berkas Besar
+*   **Masalah**: Backend Bun mengalami crash mendadak (browser menampilkan error `net::ERR_CONNECTION_TIMED_OUT` atau `ERR_CONNECTION_REFUSED`) saat pengguna mengunggah berkas multimedia berukuran besar (misalnya video giga-byte). Log kernel di VM menunjukkan pesan: *Out of memory: Killed process (bun)*.
+*   **Penyebab**: Bun/Elysia memproses unggahan multipart dengan mem-buffer berkas ke dalam RAM. Saat RAM fisik VM terbatas, gabungan memori dasar (Ceph, PostgreSQL, OpenSearch) dan lonjakan unggahan Bun melebihi batas fisik sehingga memicu OOM Killer sistem operasi Linux.
+*   **Solusi (Dengan Optimalisasi Usia SSD)**:
+    Membuat swapfile berukuran **8 GB** di VM1 sebagai memori virtual cadangan di dalam disk. Untuk meminimalkan degradasi umur SSD akibat aktivitas tulis-baca swap, turunkan parameter kernel **`swappiness`** menjadi **`10`**. Hal ini memastikan Linux hanya menulis ke SSD ketika RAM fisik benar-benar telah terpakai hingga 90% (hanya saat mengunggah berkas besar).
+    
+    Jalankan perintah berikut di terminal VM1 (`ceph-admin`):
+    ```bash
+    # 1. Matikan swap lama (jika ada)
+    sudo swapoff -a
+
+    # 2. Alokasikan berkas swap berukuran 8 GB
+    sudo fallocate -l 8G /swapfile
+
+    # 3. Batasi hak akses berkas demi keamanan
+    sudo chmod 600 /swapfile
+
+    # 4. Format berkas menjadi swap area
+    sudo mkswap /swapfile
+
+    # 5. Aktifkan swap
+    sudo swapon /swapfile
+
+    # 6. Daftarkan ke /etc/fstab agar permanen saat VM booting
+    echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+    # 7. Konfigurasi swappiness agar rendah guna melindungi SSD
+    sudo sysctl vm.swappiness=10
+    echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf
+    ```
+    Setelah itu, restart kembali layanan backend:
+    ```bash
+    sudo systemctl restart cloud-backend
+    ```
 
 ---
 

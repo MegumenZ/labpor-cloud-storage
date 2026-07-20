@@ -3,7 +3,7 @@ import { Cloud, Lock, User, ArrowRight, Loader2, Eye, EyeOff } from "lucide-reac
 import api from "./api";
 
 interface LoginProps {
-  onLoginSuccess: (username: string) => void;
+  onLoginSuccess: (username: string, user?: any) => void;
 }
 
 export default function Login({ onLoginSuccess }: LoginProps) {
@@ -13,12 +13,14 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccessMsg(null);
 
     try {
       const endpoint = isRegister ? "/auth/register" : "/auth/login";
@@ -28,9 +30,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       if (response.data.success) {
         if (isRegister) {
           setIsRegister(false);
-          setError("Pendaftaran berhasil! Silakan masuk.");
+          setSuccessMsg("Pendaftaran berhasil! Silakan masuk.");
         } else {
-          onLoginSuccess(response.data.username);
+          if (response.data.token) {
+            localStorage.setItem("token", response.data.token);
+          }
+          onLoginSuccess(response.data.username, response.data.user);
         }
       }
     } catch (err) {
@@ -44,7 +49,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-tr from-slate-950 via-indigo-950 to-blue-950 flex items-center justify-center p-4 relative overflow-hidden animate-gradient-shift">
+    <div className="min-h-screen bg-linear-to-tr from-slate-950 via-indigo-950 to-blue-950 flex items-center justify-center p-4 relative overflow-hidden animate-gradient-shift">
       {/* Decorative Glow Ambient Orbs */}
       <div className="absolute top-1/4 left-1/4 w-72 sm:w-96 h-72 sm:h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
       <div className="absolute bottom-1/4 right-1/4 w-72 sm:w-96 h-72 sm:h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
@@ -71,14 +76,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           </h2>
 
           {error && (
-            <div
-              className={`p-3 rounded-xl text-sm mb-6 border animate-in fade-in duration-300 ${
-                error.includes("berhasil")
-                  ? "bg-green-500/10 text-green-300 border-green-500/20"
-                  : "bg-red-500/10 text-red-300 border-red-500/20"
-              }`}
-            >
+            <div className="p-3 rounded-xl text-sm mb-6 border animate-in fade-in duration-300 bg-red-500/10 text-red-300 border-red-500/20">
               {error}
+            </div>
+          )}
+          {successMsg && (
+            <div className="p-3 rounded-xl text-sm mb-6 border animate-in fade-in duration-300 bg-green-500/10 text-green-300 border-green-500/20">
+              {successMsg}
             </div>
           )}
 
@@ -159,7 +163,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 hover:shadow-blue-500/25 hover:shadow-lg text-white font-bold py-3.5 px-4 rounded-xl transition-all duration-300 active:scale-95 flex items-center justify-center gap-2 mt-6 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer shadow-md"
+              className="w-full bg-linear-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 hover:shadow-blue-500/25 hover:shadow-lg text-white font-bold py-3.5 px-4 rounded-xl transition-all duration-300 active:scale-95 flex items-center justify-center gap-2 mt-6 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer shadow-md"
             >
               {loading ? (
                 <Loader2 className="animate-spin" size={20} />

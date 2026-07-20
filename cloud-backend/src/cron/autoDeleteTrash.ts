@@ -48,33 +48,38 @@ export const autoDeleteTrash = cron({
                 }
             }
 
-            // 2. Hapus berkas fisik dari Ceph S3
-            for (const storagePath of physicalFilesToDelete) {
-                try {
-                    await deletePhysicalFile(storagePath);
-                    console.log(`[Auto Delete Job] Berhasil menghapus objek Ceph S3: ${storagePath}`);
-                } catch (err: any) {
-                    console.error(`[Auto Delete Job] Gagal menghapus objek Ceph S3 ${storagePath}:`, err.message);
-                }
-            }
-
             const targetIdsArray = Array.from(allTargetIds);
 
             if (targetIdsArray.length > 0) {
+                let dbDeleteSuccess = false;
                 try {
-                    // 3. Set parentId ke null terlebih dahulu untuk menghindari pelanggaran FK constraint
-                    await db.update(files)
-                        .set({ parentId: null })
-                        .where(inArray(files.id, targetIdsArray));
+                    // 2. Lakukan penghapusan database dalam satu transaksi (jika memungkinkan) atau update/delete batch
+                    await db.transaction(async (tx) => {
+                        // Set parentId ke null terlebih dahulu untuk menghindari pelanggaran FK constraint
+                        await tx.update(files)
+                            .set({ parentId: null })
+                            .where(inArray(files.id, targetIdsArray));
 
-                    // 4. Hapus baris dari database
-                    const deletedResult = await db.delete(files)
-                        .where(inArray(files.id, targetIdsArray))
-                        .returning();
-
-                    console.log(`[Auto Delete Job] Berhasil menghapus ${deletedResult.length} baris metadata dari database.`);
+                        // Hapus baris dari database
+                        await tx.delete(files)
+                            .where(inArray(files.id, targetIdsArray));
+                    });
+                    dbDeleteSuccess = true;
+                    console.log(`[Auto Delete Job] Berhasil menghapus ${targetIdsArray.length} baris metadata dari database.`);
                 } catch (dbError: any) {
                     console.error(`[Auto Delete Job] Gagal menghapus metadata dari database:`, dbError.message);
+                }
+
+                // 3. Hapus berkas fisik dari Ceph S3 hanya jika penghapusan database berhasil
+                if (dbDeleteSuccess) {
+                    for (const storagePath of physicalFilesToDelete) {
+                        try {
+                            await deletePhysicalFile(storagePath);
+                            console.log(`[Auto Delete Job] Berhasil menghapus objek Ceph S3: ${storagePath}`);
+                        } catch (err: any) {
+                            console.error(`[Auto Delete Job] Gagal menghapus objek Ceph S3 ${storagePath}:`, err.message);
+                        }
+                    }
                 }
             }
         } else {

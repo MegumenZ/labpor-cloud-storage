@@ -55,14 +55,28 @@ export default function ProfileModal({ onClose, onUpdate }: ProfileModalProps) {
     fetchProfile();
   }, []);
 
+  // Sync profile data to edit fields and preview avatar on load/cancel/update
+  useEffect(() => {
+    if (!isEditing && profile) {
+      setDisplayName(profile.displayName || "");
+      const avatar = profile.avatar;
+      const baseUrl = api.defaults.baseURL || (import.meta.env.DEV ? "http://localhost:3001" : "");
+      const fullAvatarUrl = avatar
+        ? (avatar.startsWith("http")
+            ? avatar
+            : `${baseUrl}/uploads/avatars/${avatar}`)
+        : null;
+      setPreviewAvatar(fullAvatarUrl);
+      setAvatarFile(null);
+    }
+  }, [isEditing, profile]);
+
   const fetchProfile = async () => {
     setLoading(true);
     setError(false);
     try {
       const res = await api.get("/auth/profile");
       setProfile(res.data);
-      setDisplayName(res.data.displayName || "");
-      setPreviewAvatar(res.data.avatar || null);
     } catch (error) {
       console.error("Failed to fetch profile:", error);
       setProfile(null);

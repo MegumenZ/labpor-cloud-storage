@@ -32,7 +32,7 @@ export default function Breadcrumbs({ items, onNavigate }: BreadcrumbsProps) {
             <ChevronRight size={14} className="text-muted-foreground/30 shrink-0" />
             <button
               onClick={() => onNavigate(crumb.id, index)}
-              className={`transition-all duration-200 max-w-[160px] truncate cursor-pointer font-medium hover:scale-[1.02] active:scale-[0.98] shrink-0 ${
+              className={`transition-all duration-200 max-w-40 truncate cursor-pointer font-medium hover:scale-[1.02] active:scale-[0.98] shrink-0 ${
                 isLast
                   ? "text-primary font-bold bg-primary/10 px-3 py-1 rounded-xl border border-primary/20 shadow-sm"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent px-2.5 py-1 rounded-xl"

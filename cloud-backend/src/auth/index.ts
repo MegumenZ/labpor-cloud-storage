@@ -5,6 +5,7 @@ import { authPlugin, requireAuth, createRateLimiter } from "./middleware";
 import { s3, BUCKET_NAME } from "../files/s3";
 import { PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { writeLog } from "../utils/logger";
+import { getUserDashboardData } from "../utils/shared-queries";
 import { getAvatarUrl, getCephCapacity, checkStorageOnline } from "../utils/ceph";
 
 export const authRoutes = new Elysia({ prefix: "/auth" })
@@ -80,6 +81,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             const token = await jwtPlugin.sign({
                 id: user.id,
                 username: user.username,
+                exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60)
             });
 
             // Set secure HttpOnly session cookie
@@ -97,16 +99,21 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 ip
             });
 
+            const dashboardData = await getUserDashboardData(user.id);
+
             return {
                 success: true,
-                token: token,
+                token,
                 username: user.username,
-                user: {
+                user: dashboardData || {
                     id: user.id,
                     username: user.username,
                     displayName: user.displayName,
                     avatar: user.avatar,
-                    themePreference: user.themePreference
+                    themePreference: user.themePreference,
+                    usedStorage: 0,
+                    storageLimit: 130 * 1024 * 1024 * 1024,
+                    storageOnline: true
                 },
             };
         },
@@ -123,95 +130,41 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
         return { success: true, message: "Logged out successfully" };
     })
     .get("/me", async (c) => {
-        const profile = await requireAuth(c);
-        const { set } = c;
+        try {
+            const profile = await requireAuth(c);
+            const { set } = c;
 
-        // Fetch full user details
-        const [user] = await db.select().from(users).where(eq(users.id, profile.id));
-
-        if (!user) {
-            set.status = 401;
-            return { message: "User not found" };
-        }
-
-        // High Performance Database-level Aggregation (Total files uploaded by this user)
-        const [userFilesResult] = await db
-            .select({
-                totalFiles: sql<number>`count(${files.id})::int`,
-            })
-            .from(files)
-            .where(and(eq(files.userId, user.id), eq(files.isDeleted, false)));
-
-        // Total storage used collectively by all non-deleted files in the system
-        const [systemStorageResult] = await db
-            .select({
-                usedStorage: sql`coalesce(sum(${files.size}), 0)`,
-            })
-            .from(files)
-            .where(eq(files.isDeleted, false));
-
-        const totalFiles = userFilesResult?.totalFiles || 0;
-        const usedStorage = Number(systemStorageResult?.usedStorage || 0);
-
-        return {
-            authenticated: true,
-            user: {
-                id: user.id,
-                username: user.username,
-                displayName: user.displayName,
-                avatar: await getAvatarUrl(user.avatar),
-                createdAt: user.createdAt,
-                totalFiles: totalFiles,
-                usedStorage: usedStorage,
-                storageLimit: await getCephCapacity(),
-                storageOnline: await checkStorageOnline(),
-                themePreference: user.themePreference,
+            const data = await getUserDashboardData(profile.id);
+            if (!data) {
+                set.status = 401;
+                return { message: "User not found" };
             }
-        };
+
+            return {
+                authenticated: true,
+                user: data
+            };
+        } catch (err: any) {
+            if (err?.name === "AuthenticationError" || err?.message?.includes("Unauthorized")) {
+                c.set.status = 401;
+                return { authenticated: false, message: err.message };
+            }
+            console.error("[AUTH/ME ERROR]", err);
+            c.set.status = 500;
+            return { message: "Internal Server Error", details: err?.message };
+        }
     })
     .get("/profile", async (c) => {
         const profile = await requireAuth(c);
-        const { set, request } = c;
+        const { set } = c;
 
-        // Fetch full user details
-        const [user] = await db.select().from(users).where(eq(users.id, profile.id));
-
-        if (!user) {
+        const data = await getUserDashboardData(profile.id);
+        if (!data) {
             set.status = 401;
             return { message: "User not found" };
         }
 
-        // High Performance Database-level Aggregation (Total files uploaded by this user)
-        const [userFilesResult] = await db
-            .select({
-                totalFiles: sql<number>`count(${files.id})::int`,
-            })
-            .from(files)
-            .where(and(eq(files.userId, user.id), eq(files.isDeleted, false)));
-
-        // Total storage used collectively by all non-deleted files in the system
-        const [systemStorageResult] = await db
-            .select({
-                usedStorage: sql`coalesce(sum(${files.size}), 0)`,
-            })
-            .from(files)
-            .where(eq(files.isDeleted, false));
-
-        const totalFiles = userFilesResult?.totalFiles || 0;
-        const usedStorage = Number(systemStorageResult?.usedStorage || 0);
-
-        return {
-            id: user.id,
-            username: user.username,
-            displayName: user.displayName,
-            avatar: await getAvatarUrl(user.avatar),
-            createdAt: user.createdAt,
-            totalFiles: totalFiles,
-            usedStorage: usedStorage,
-            storageLimit: await getCephCapacity(),
-            storageOnline: await checkStorageOnline(),
-            themePreference: user.themePreference,
-        };
+        return data;
     })
     .put("/profile", async (c) => {
         const profile = await requireAuth(c);

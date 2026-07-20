@@ -6,9 +6,11 @@ import { authPlugin, requireAuth } from "../auth/middleware";
 import { s3, BUCKET_NAME } from "./s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { writeLog } from "../utils/logger";
-import { getPresignedUrls, getAllDescendants, deletePhysicalFile } from "../utils/ceph";
+import { getPresignedUrls, getAllDescendants, deletePhysicalFile, fixHttpsUrl } from "../utils/ceph";
 import { Readable } from "stream";
+import Busboy from "busboy";
 
 const BANNED_EXTENSIONS = [
     "html", "htm", "js", "ts", "php", "phtml", "php3", "php4", "php5", "phps",
@@ -30,7 +32,8 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         const conditions = [eq(files.isDeleted, isTrash)];
 
         if (search) {
-            conditions.push(ilike(files.name, `%${search}%`));
+            const escapedSearch = search.replace(/[%_]/g, '\\$&');
+            conditions.push(ilike(files.name, `%${escapedSearch}%`));
         } else if (!isFavorite && !isRecent) {
             if (parentId) {
                 conditions.push(eq(files.parentId, parentId));
@@ -152,7 +155,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         }
         
         const rangeHeader = request.headers.get("range");
-        const s3Params: any = {
+        const s3Params: { Bucket: string; Key: string; Range?: string } = {
             Bucket: BUCKET_NAME,
             Key: file.storagePath
         };
@@ -163,7 +166,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         try {
             const s3Response = await s3.send(new GetObjectCommand(s3Params));
             
-            const responseHeaders: any = {
+            const responseHeaders: Record<string, string> = {
                 "Content-Type": file.type,
                 "Content-Security-Policy": "default-src 'none'; sandbox;",
                 "X-Content-Type-Options": "nosniff"
@@ -207,7 +210,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         }
         
         const rangeHeader = request.headers.get("range");
-        const s3Params: any = {
+        const s3Params: { Bucket: string; Key: string; Range?: string } = {
             Bucket: BUCKET_NAME,
             Key: file.storagePath
         };
@@ -218,9 +221,9 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         try {
             const s3Response = await s3.send(new GetObjectCommand(s3Params));
             
-            const responseHeaders: any = {
+            const responseHeaders: Record<string, string> = {
                 "Content-Type": file.type,
-                "Content-Disposition": `attachment; filename="${file.name}"`
+                "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`
             };
             if (s3Response.ContentLength) {
                 responseHeaders["Content-Length"] = s3Response.ContentLength.toString();
@@ -231,7 +234,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
             const status = s3Response.ContentRange ? 206 : 200;
 
-            return new Response(s3Response.Body as any, {
+            return new Response(s3Response.Body as unknown as BodyInit, {
                 status,
                 headers: responseHeaders
             });
@@ -245,11 +248,179 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         }
     })
     .post(
-        "/upload",
+        "/stream-upload",
+        async (c) => {
+            const user = await requireAuth(c);
+            const { set, request } = c;
+
+            const filename = request.headers.get("x-file-name") || "uploaded-file";
+            const fileType = request.headers.get("content-type") || "application/octet-stream";
+            const parentId = request.headers.get("x-parent-id") || null;
+            const decodedFileName = decodeURIComponent(filename);
+
+            const extension = decodedFileName.split(".").pop()?.toLowerCase();
+            if (!extension || BANNED_EXTENSIONS.includes(extension)) {
+                set.status = 400;
+                return { message: "File type is not allowed for security reasons" };
+            }
+
+            if (decodedFileName.includes("..") || decodedFileName.includes("/") || decodedFileName.includes("\\")) {
+                set.status = 400;
+                return { message: "Invalid file name" };
+            }
+
+            const safeFileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
+            const storagePath = `${user.id}/${safeFileName}`;
+
+            try {
+                const uploadStart = Date.now();
+                const nodeStream = Readable.fromWeb(request.body as any);
+
+                const upload = new Upload({
+                    client: s3,
+                    params: {
+                        Bucket: BUCKET_NAME,
+                        Key: storagePath,
+                        Body: nodeStream,
+                        ContentType: fileType,
+                    },
+                    queueSize: 4,
+                    partSize: 50 * 1024 * 1024, // 50MB parts
+                    leavePartsOnError: false,
+                });
+
+                let totalUploadedBytes = 0;
+                upload.on("httpUploadProgress", (progress) => {
+                    if (progress.loaded) {
+                        totalUploadedBytes = progress.loaded;
+                    }
+                });
+
+                await upload.done();
+
+                const uploadDuration = Date.now() - uploadStart;
+                await writeLog("INFO", "CEPH", `Successfully zero-RAM streamed file to Ceph S3: ${storagePath}`, {
+                    userId: user.id,
+                    elapsedMs: uploadDuration,
+                    metadata: {
+                        bucket: BUCKET_NAME,
+                        key: storagePath,
+                        fileSize: totalUploadedBytes,
+                        contentType: fileType
+                    }
+                });
+
+                const [newFile] = await db.insert(files).values({
+                    name: decodedFileName,
+                    type: fileType,
+                    size: totalUploadedBytes,
+                    parentId: parentId || null,
+                    userId: user.id,
+                    isFolder: false,
+                    storagePath,
+                }).returning();
+
+                const [dbUser] = await db.select({ displayName: users.displayName })
+                    .from(users)
+                    .where(eq(users.id, user.id))
+                    .limit(1);
+
+                const urls = await getPresignedUrls(newFile.storagePath, newFile.type, newFile.name);
+                return {
+                    data: {
+                        ...newFile,
+                        ...urls,
+                        uploaderUsername: user.username,
+                        uploaderName: dbUser?.displayName || user.username
+                    }
+                };
+            } catch (err: any) {
+                await writeLog("ERROR", "CEPH", `Failed zero-RAM streaming upload to S3: ${err.message}`, {
+                    userId: user.id,
+                    errorStack: err.stack
+                });
+                set.status = 500;
+                return { message: "Failed to save file to cloud storage" };
+            }
+        }
+    )
+    .post(
+        "/presigned-upload",
         async (c) => {
             const user = await requireAuth(c);
             const { body, set } = c;
-            const uploadedFile = body.file as File;
+            const { name, type, size, parentId } = (body || {}) as { name: string; type: string; size: number; parentId?: string };
+
+            if (!name) {
+                set.status = 400;
+                return { message: "File name is required" };
+            }
+
+            const extension = name.split(".").pop()?.toLowerCase();
+            if (!extension || BANNED_EXTENSIONS.includes(extension)) {
+                set.status = 400;
+                return { message: "File type is not allowed for security reasons" };
+            }
+
+            if (name.includes("..") || name.includes("/") || name.includes("\\")) {
+                set.status = 400;
+                return { message: "Invalid file name" };
+            }
+
+            const safeFileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
+            const storagePath = `${user.id}/${safeFileName}`;
+
+            const putCmd = new PutObjectCommand({
+                Bucket: BUCKET_NAME,
+                Key: storagePath,
+                ContentType: type || "application/octet-stream",
+            });
+
+            const rawUploadUrl = await getSignedUrl(s3, putCmd, { expiresIn: 86400 });
+            const uploadUrl = fixHttpsUrl(rawUploadUrl);
+
+            const [newFile] = await db.insert(files).values({
+                name,
+                type: type || "application/octet-stream",
+                size: size || 0,
+                parentId: parentId || null,
+                userId: user.id,
+                isFolder: false,
+                storagePath,
+            }).returning();
+
+            const [dbUser] = await db.select({ displayName: users.displayName })
+                .from(users)
+                .where(eq(users.id, user.id))
+                .limit(1);
+
+            const urls = await getPresignedUrls(newFile.storagePath, newFile.type, newFile.name);
+
+            return {
+                uploadUrl,
+                file: {
+                    ...newFile,
+                    ...urls,
+                    uploaderUsername: user.username,
+                    uploaderName: dbUser?.displayName || user.username
+                }
+            };
+        }
+    )
+    .post(
+        "/upload",
+        async (c) => {
+            const user = await requireAuth(c);
+            const { set, request } = c;
+
+            const formData = await request.formData();
+            const uploadedFile = formData.get("file") as File | null;
+            const parentId = (formData.get("parentId") as string) || null;
+
+            if (!uploadedFile) {
+                set.status = 400;
+                return { message: "No file provided" };
+            }
 
             // 1️⃣ VALIDASI EKSTENSI FILE BERBAHAYA (Stored XSS & RCE)
             const extension = uploadedFile.name.split(".").pop()?.toLowerCase();
@@ -258,14 +429,14 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                 return { message: "File type is not allowed for security reasons" };
             }
 
-            // 2️⃣ VALIDASI UKURAN (Diatur tinggi karena akan terhubung ke Ceph, misal 500GB)
+            // 2️⃣ VALIDASI UKURAN
             const MAX_SIZE = 500 * 1024 * 1024 * 1024; // 500GB
             if (uploadedFile.size > MAX_SIZE) {
                 set.status = 400;
                 return { message: "File size exceeds 500GB" };
             }
 
-            // 3️⃣ VALIDASI NAMA FILE (MINIMAL)
+            // 3️⃣ VALIDASI NAMA FILE
             if (!uploadedFile.name || uploadedFile.name.includes("..") || uploadedFile.name.includes("/") || uploadedFile.name.includes("\\")) {
                 set.status = 400;
                 return { message: "Invalid file name" };
@@ -275,7 +446,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             const safeFileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
             const storagePath = `${user.id}/${safeFileName}`;
 
-            // 5️⃣ SIMPAN FILE KE CEPH S3
+            // 5️⃣ SIMPAN FILE KE CEPH S3 VIA C++ NATIVE STREAM
             try {
                 const uploadStart = Date.now();
                 const webStream = uploadedFile.stream();
@@ -287,10 +458,10 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                         Bucket: BUCKET_NAME,
                         Key: storagePath,
                         Body: nodeStream,
-                        ContentType: uploadedFile.type,
+                        ContentType: uploadedFile.type || "application/octet-stream",
                     },
                     queueSize: 4,
-                    partSize: 10 * 1024 * 1024, // 10MB parts
+                    partSize: 50 * 1024 * 1024, // 50MB parts & 4 concurrency
                     leavePartsOnError: false,
                 });
 
@@ -319,9 +490,9 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             // 6️⃣ SIMPAN KE DATABASE
             const [newFile] = await db.insert(files).values({
                 name: uploadedFile.name,
-                type: uploadedFile.type,
+                type: uploadedFile.type || "application/octet-stream",
                 size: uploadedFile.size,
-                parentId: body.parentId || null,
+                parentId: parentId || null,
                 userId: user.id,
                 isFolder: false,
                 storagePath,
@@ -341,12 +512,6 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                     uploaderName: dbUser?.displayName || user.username
                 }
             };
-        },
-        {
-            body: t.Object({
-                file: t.File(),
-                parentId: t.Optional(t.String()),
-            }),
         }
     )
     .post(
@@ -420,20 +585,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
                 if (permanent) {
                     if (file.isFolder) {
-                        const result = await tx.execute(sql`
-                            WITH RECURSIVE descendants AS (
-                                SELECT * FROM files WHERE parent_id = ${id}
-                                UNION ALL
-                                SELECT f.* FROM files f
-                                INNER JOIN descendants d ON f.parent_id = d.id
-                            )
-                            SELECT * FROM descendants;
-                        `);
-                        const descendants = result.map((row: any) => ({
-                            id: row.id,
-                            isFolder: row.is_folder === true || row.is_folder === 'true' || row.is_folder === 1,
-                            storagePath: row.storage_path
-                        }));
+                        const descendants = await getAllDescendants(id);
 
                         for (const d of descendants) {
                             if (!d.isFolder && d.storagePath) {
@@ -456,18 +608,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                         .where(eq(files.id, id));
 
                     if (file.isFolder) {
-                        const result = await tx.execute(sql`
-                            WITH RECURSIVE descendants AS (
-                                SELECT * FROM files WHERE parent_id = ${id}
-                                UNION ALL
-                                SELECT f.* FROM files f
-                                INNER JOIN descendants d ON f.parent_id = d.id
-                            )
-                            SELECT * FROM descendants;
-                        `);
-                        const descendants = result.map((row: any) => ({
-                            id: row.id
-                        }));
+                        const descendants = await getAllDescendants(id);
                         if (descendants.length > 0) {
                             const descendantIds = descendants.map(d => d.id);
                             await tx.update(files)
@@ -527,18 +668,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                     .where(eq(files.id, id));
 
                 if (file.isFolder) {
-                    const result = await tx.execute(sql`
-                        WITH RECURSIVE descendants AS (
-                            SELECT * FROM files WHERE parent_id = ${id}
-                            UNION ALL
-                            SELECT f.* FROM files f
-                            INNER JOIN descendants d ON f.parent_id = d.id
-                        )
-                        SELECT * FROM descendants;
-                    `);
-                    const descendants = result.map((row: any) => ({
-                        id: row.id
-                    }));
+                    const descendants = await getAllDescendants(id);
                     if (descendants.length > 0) {
                         const descendantIds = descendants.map(d => d.id);
                         await tx.update(files)
@@ -650,7 +780,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             await db.transaction(async (tx) => {
                 const trashItems = await tx.select()
                     .from(files)
-                    .where(eq(files.isDeleted, true));
+                    .where(and(eq(files.isDeleted, true), eq(files.deletedBy, user.id)));
 
                 for (const item of trashItems) {
                     if (!item.isFolder && item.storagePath) {

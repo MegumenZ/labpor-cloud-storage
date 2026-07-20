@@ -1,10 +1,6 @@
-import { useState, lazy, Suspense } from "react";
+import { useState } from "react";
 import { Cloud, FolderInput, Trash2, Download, X, CloudOff } from "lucide-react";
-import Login from "./Login";
-import api from "./api";
-
 // Import Custom Hooks
-import { useAuth } from "./hooks/useAuth";
 import { useFiles } from "./hooks/useFiles";
 
 // Import Components
@@ -13,27 +9,14 @@ import { Sidebar } from "./components/Sidebar";
 import { FileGrid } from "./components/FileGrid";
 import Breadcrumbs from "./components/Breadcrumbs";
 
-const PreviewModal = lazy(() => import("./components/modals/PreviewModal"));
-import MoveModal from "./components/modals/MoveModal";
-import DeleteModal from "./components/modals/DeleteModal";
-import PropertiesModal from "./components/modals/PropertiesModal";
-import ProfileModal from "./components/modals/ProfileModal";
-import RenameModal from "./components/modals/RenameModal";
-import StorageErrorModal from "./components/modals/StorageErrorModal";
+import { GlobalModals } from "./components/GlobalModals";
 
 // Import shadcn/ui & Sonner Premium Components
 import { Toaster, toast } from "sonner";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
-function App() {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export default function App({ auth }: { auth: any }) {
   const {
     isAuthenticated,
     currentUser,
@@ -43,10 +26,9 @@ function App() {
     isStorageOnline,
     storageInfo,
     refreshStorageInfo,
-    login,
     logout,
     updateProfile,
-  } = useAuth();
+  } = auth;
 
   const {
     files,
@@ -120,169 +102,25 @@ function App() {
     );
   }
 
-  if (!isAuthenticated) {
-    return (
-      <Login
-        onLoginSuccess={(u) => {
-          api.get("/auth/me").then((res) => {
-            if (res.data.authenticated) {
-              login(u, res.data.user);
-            }
-          });
-        }}
-      />
-    );
-  }
+
 
   return (
     <div className="min-h-screen bg-background flex font-sans text-foreground relative">
       {/* GLOBAL SONNER TOASTER */}
       <Toaster richColors position="bottom-right" closeButton />
 
-      {/* MODALS */}
-      <Dialog
-        open={!!selectedFile}
-        onOpenChange={(open: boolean) => !open && setSelectedFile(null)}
-      >
-        {selectedFile && (
-          <Suspense fallback={
-            <div className="w-full h-48 flex flex-col items-center justify-center gap-3 text-muted-foreground bg-popover rounded-2xl border border-border">
-              <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin"></div>
-              <p className="text-sm font-medium">Memuat peninjau berkas...</p>
-            </div>
-          }>
-            <PreviewModal
-              file={selectedFile}
-            />
-          </Suspense>
-        )}
-      </Dialog>
-
-      <Dialog
-        open={filesToMove.length > 0}
-        onOpenChange={(open: boolean) => !open && setFilesToMove([])}
-      >
-        {filesToMove.length > 0 && (
-          <MoveModal
-            files={filesToMove}
-            onClose={() => setFilesToMove([])}
-            onMoveSuccess={() => {
-              fetchFiles();
-              handleClearSelection();
-            }}
-          />
-        )}
-      </Dialog>
-
-      <Dialog
-        open={!!confirmDeleteConfig}
-        onOpenChange={(open: boolean) => !open && setConfirmDeleteConfig(null)}
-      >
-        {confirmDeleteConfig && (
-          <DeleteModal
-            onConfirm={confirmDeleteConfig.onConfirm}
-            onCancel={() => setConfirmDeleteConfig(null)}
-            isPermanent={viewMode === "trash"}
-            title={confirmDeleteConfig.title}
-            description={confirmDeleteConfig.description}
-            confirmLabel={confirmDeleteConfig.confirmLabel}
-          />
-        )}
-      </Dialog>
-
-      {/* Global shadcn/ui Dialog Integration for File Properties */}
-      <Dialog
-        open={!!fileProperties}
-        onOpenChange={(open: boolean) => !open && setFileProperties(null)}
-      >
-        {fileProperties && (
-          <PropertiesModal
-            file={fileProperties}
-            breadcrumbs={folderStack}
-            onClose={() => setFileProperties(null)}
-          />
-        )}
-      </Dialog>
-
-      {/* Global shadcn/ui Dialog Integration for Rename */}
-      <Dialog
-        open={!!fileToRename}
-        onOpenChange={(open: boolean) => !open && setFileToRename(null)}
-      >
-        {fileToRename && (
-          <RenameModal
-            file={fileToRename}
-            onClose={() => setFileToRename(null)}
-            onRenameSuccess={fetchFiles}
-          />
-        )}
-      </Dialog>
-
-      <Dialog
-        open={showProfileModal}
-        onOpenChange={(open: boolean) => !open && setShowProfileModal(false)}
-      >
-        {showProfileModal && (
-          <ProfileModal
-            onClose={() => setShowProfileModal(false)}
-            onUpdate={(updatedUser: {
-              username?: string;
-              displayName?: string | null;
-              avatar?: string | null;
-            }) => {
-              updateProfile(updatedUser);
-            }}
-          />
-        )}
-      </Dialog>
-
-      <StorageErrorModal
-        isOpen={!!storageErrorConfig}
-        onClose={() => setStorageErrorConfig(null)}
-        fileSize={storageErrorConfig?.fileSize || 0}
-        availableStorage={storageErrorConfig?.availableStorage || 0}
-        limit={storageErrorConfig?.limit || 0}
-        absoluteMax={storageErrorConfig?.absoluteMax}
-        onEmptyTrash={handleEmptyTrash}
-        hasTrashItems={true}
+      {/* Global Modals Container */}
+      <GlobalModals 
+        fileState={{
+          selectedFile, setSelectedFile, filesToMove, setFilesToMove, fetchFiles,
+          handleClearSelection, confirmDeleteConfig, setConfirmDeleteConfig, viewMode,
+          fileProperties, setFileProperties, folderStack, fileToRename, setFileToRename,
+          storageErrorConfig, setStorageErrorConfig, handleEmptyTrash, isNewFolderOpen,
+          setIsNewFolderOpen, onCreateFolderSubmit, newFolderName, setNewFolderName
+        }}
+        authState={{ updateProfile }}
+        appState={{ showProfileModal, setShowProfileModal }}
       />
-
-      {/* Global shadcn/ui Dialog for New Folder Action */}
-      <Dialog open={isNewFolderOpen} onOpenChange={setIsNewFolderOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Buat Folder Baru</DialogTitle>
-            <DialogDescription>
-              Masukkan nama folder baru yang ingin Anda buat di direktori saat ini.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={onCreateFolderSubmit}>
-            <div className="grid gap-4 py-4">
-              <input
-                type="text"
-                placeholder="Nama Folder"
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                className="flex h-10 w-full rounded-xl border border-border bg-background text-foreground px-3 py-2 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-transparent transition-all"
-                autoFocus
-                required
-              />
-            </div>
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setIsNewFolderOpen(false)}
-              >
-                Batal
-              </Button>
-              <Button type="submit" disabled={!newFolderName.trim()}>
-                Buat Folder
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       {/* MOBILE SIDEBAR OVERLAY/DRAWER */}
       {isMobileSidebarOpen && (
@@ -452,7 +290,7 @@ function App() {
             )}
             <button
               onClick={handleBulkDelete}
-              className="p-2 sm:px-4 sm:py-2 hover:bg-destructive/15 rounded-xl text-xs sm:text-sm font-semibold text-destructive hover:bg-destructive/20 transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer"
+              className="p-2 sm:px-4 sm:py-2 hover:bg-destructive/20 rounded-xl text-xs sm:text-sm font-semibold text-destructive transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer"
               title="Delete selected"
             >
               <Trash2 size={16} /> <span className="hidden sm:inline">Delete</span>
@@ -470,7 +308,7 @@ function App() {
 
       {/* UPLOADING FILES PROGRESS FLOATING CARD */}
       {uploadingFiles.length > 0 && (
-        <div className="fixed bottom-6 right-6 z-[60] bg-card/95 backdrop-blur-md shadow-2xl border border-border/80 p-4 rounded-2xl w-80 md:w-96 text-card-foreground animate-in slide-in-from-bottom-5 duration-300">
+        <div className="fixed bottom-6 right-6 z-60 bg-card/95 backdrop-blur-md shadow-2xl border border-border/80 p-4 rounded-2xl w-80 md:w-96 text-card-foreground animate-in slide-in-from-bottom-5 duration-300">
           <div className="flex items-center justify-between pb-3 border-b border-border mb-3">
             <span className="text-sm font-bold text-foreground flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
@@ -481,11 +319,13 @@ function App() {
             {uploadingFiles.map((file) => (
               <div key={file.id} className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs font-semibold gap-2">
-                  <span className="truncate text-foreground max-w-[70%] font-medium" title={file.name}>
+                  <span className="truncate text-foreground max-w-[65%]" title={file.name}>
                     {file.name}
                   </span>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-muted-foreground">{file.progress}%</span>
+                    <span className="text-muted-foreground text-[11px]">
+                      {file.statusText || `${file.progress}%`}
+                    </span>
                     <button
                       onClick={() => cancelUpload(file.id)}
                       className="p-1 hover:bg-destructive/15 rounded-lg text-muted-foreground hover:text-destructive transition-all cursor-pointer"
@@ -497,7 +337,9 @@ function App() {
                 </div>
                 <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
                   <div
-                    className="bg-blue-500 h-1.5 rounded-full transition-all duration-300 ease-out"
+                    className={`h-1.5 rounded-full transition-all duration-300 ease-out ${
+                      file.progress >= 100 ? "bg-green-500" : file.progress >= 95 ? "bg-amber-500 animate-pulse" : "bg-blue-500"
+                    }`}
                     style={{ width: `${file.progress}%` }}
                   ></div>
                 </div>
@@ -510,4 +352,4 @@ function App() {
   );
 }
 
-export default App;
+

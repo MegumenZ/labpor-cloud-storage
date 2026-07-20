@@ -24,36 +24,47 @@ export const authPlugin = new Elysia()
     );
 
 // Fungsi utilitas murni requireAuth - 100% Anti-Gagal di runtime
-export async function requireAuth(context: any) {
-    const { jwtPlugin, headers, cookie, set } = context;
+export async function requireAuth(context: { jwtPlugin?: any; headers?: Record<string, string | undefined>; cookie?: Record<string, any>; set?: any; request?: Request }) {
+    const { jwtPlugin, headers, cookie, set, request } = context || {};
     
-    if (!jwtPlugin) {
-        set.status = 500;
-        throw new Error("Internal Server Error: jwtPlugin is missing in context");
+    let verifier = jwtPlugin;
+    if (!verifier || typeof verifier.verify !== "function") {
+        const { jwt } = await import("@elysiajs/jwt");
+        verifier = jwt({
+            name: "jwtPlugin",
+            secret: process.env.JWT_SECRET!,
+        });
     }
 
     let token: string | undefined = undefined;
     
-    const cookieToken = cookie.token?.value;
-    if (typeof cookieToken === "string") {
-        token = cookieToken;
+    const rawCookieToken = cookie?.token?.value ?? cookie?.token;
+    if (typeof rawCookieToken === "string") {
+        token = rawCookieToken;
     }
     
-    if (!token) {
+    if (!token && headers) {
         const authHeader = headers["authorization"];
         if (typeof authHeader === "string") {
             token = authHeader.split(" ")[1];
         }
     }
 
+    if (!token && request?.headers) {
+        const authHeader = request.headers.get("authorization");
+        if (typeof authHeader === "string") {
+            token = authHeader.split(" ")[1];
+        }
+    }
+
     if (!token) {
-        set.status = 401;
+        if (set) set.status = 401;
         throw new AuthenticationError("Unauthorized: Missing token");
     }
 
-    const payload = await jwtPlugin.verify(token);
+    const payload = await verifier.verify(token);
     if (!payload) {
-        set.status = 401;
+        if (set) set.status = 401;
         throw new AuthenticationError("Unauthorized: Invalid token");
     }
 
@@ -65,7 +76,7 @@ export async function requireAuth(context: any) {
  * Aman dari restart server, persisten, dan 100% bebas biaya/infrastruktur tambahan.
  */
 export function createRateLimiter(maxRequests: number, windowMs: number) {
-    return async ({ request, set }: any) => {
+    return async ({ request, set }: { request: Request; set: any }) => {
         // Dapatkan IP klien. Prioritaskan Header x-forwarded-for jika di belakang Nginx/reverse proxy
         const rawIp = request.headers?.get("x-forwarded-for") || "127.0.0.1";
         const ip = rawIp.split(",")[0].trim();
@@ -132,8 +143,9 @@ export function createRateLimiter(maxRequests: number, windowMs: number) {
                 .where(eq(rateLimits.ip, ip));
 
         } catch (dbError) {
-            // Fail-open: Jika koneksi DB bermasalah, tetap izinkan request demi UX pengguna
-            console.error("Rate Limiter Database Error (Fail-Open):", dbError);
+            console.error("Rate Limiter Database Error:", dbError);
+            set.status = 503;
+            return { message: "Service temporarily unavailable" };
         }
     };
 }

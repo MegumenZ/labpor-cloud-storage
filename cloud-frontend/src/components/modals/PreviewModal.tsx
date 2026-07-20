@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import DOMPurify from "dompurify";
 import {
   Film,
   Music,
@@ -47,7 +48,7 @@ const LocalDocxViewer = ({ url }: { url: string }) => {
   return (
     <div
       className="w-full h-full bg-background text-foreground p-8 overflow-y-auto prose dark:prose-invert max-w-none focus:outline-none"
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
     />
   );
 };
@@ -57,9 +58,6 @@ interface PreviewModalProps {
 }
 
 export default function PreviewModal({ file }: PreviewModalProps) {
-  const t = file.type.toLowerCase();
-  const e = file.name.split(".").pop()?.toLowerCase() || "";
-  const isMedia = t.includes("video") || t.includes("audio") || ["mp4", "mkv", "webm", "mp3", "wav"].includes(e);
 
   const getIcon = (f: FileItem) => {
     const t = f.type.toLowerCase();
@@ -120,12 +118,12 @@ export default function PreviewModal({ file }: PreviewModalProps) {
     // AUDIO
     if (t.includes("audio") || ["mp3", "wav"].includes(e))
       return (
-        <div className="w-full h-full p-10 text-center flex flex-col items-center justify-center bg-muted/40 rounded-xl">
-          <div className="w-16 h-16 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center text-green-500 mb-4 animate-pulse">
-            <Music size={32} />
+        <div className="w-full max-w-4xl p-10 sm:p-14 text-center flex flex-col items-center justify-center bg-card/80 backdrop-blur-md rounded-3xl border border-border/80 shadow-2xl my-auto">
+          <div className="w-24 h-24 rounded-3xl bg-green-500/10 border border-green-500/20 flex items-center justify-center text-green-500 mb-6 shadow-inner animate-pulse">
+            <Music size={48} />
           </div>
-          <p className="font-semibold text-foreground mb-4 text-sm truncate max-w-sm">{file.name}</p>
-          <audio controls className="w-full max-w-md shadow-sm">
+          <p className="font-bold text-foreground mb-8 text-lg sm:text-2xl truncate max-w-2xl">{file.name}</p>
+          <audio controls className="w-full h-14 shadow-lg rounded-2xl accent-blue-500">
             <source src={url} />
             Browser Anda tidak mendukung pemutar audio.
           </audio>
@@ -157,11 +155,7 @@ export default function PreviewModal({ file }: PreviewModalProps) {
   };
 
   return (
-    <DialogContent className={`p-0 overflow-hidden flex flex-col bg-popover text-foreground border border-border shadow-2xl rounded-2xl animate-in zoom-in-95 duration-200 ${
-      isMedia 
-        ? "w-fit max-w-[95vw] md:max-w-4xl h-auto my-auto" 
-        : "max-w-5xl w-[95vw] h-[90vh]"
-    }`}>
+    <DialogContent className="p-0 overflow-hidden flex flex-col bg-popover text-foreground border border-border shadow-2xl rounded-2xl animate-in zoom-in-95 duration-200 !max-w-6xl sm:!max-w-6xl w-[95vw] h-[88vh]">
       {/* HEADER PREVIEW */}
       <div className="p-4 border-b border-border flex justify-between items-center bg-popover text-foreground shrink-0 select-none">
         <div className="flex items-center gap-3.5 min-w-0 pr-6">
@@ -178,12 +172,8 @@ export default function PreviewModal({ file }: PreviewModalProps) {
       </div>
 
       {/* PREVIEW CONTAINER */}
-      <div className={`transition-colors flex items-center justify-center ${
-        isMedia 
-          ? "bg-background p-0 w-full h-auto overflow-hidden" 
-          : "flex-1 bg-muted/30 p-4 w-full h-full overflow-auto"
-      }`}>
-        <div className={isMedia ? "w-full h-auto flex items-center justify-center" : "w-full h-full flex items-center justify-center"}>
+      <div className="flex-1 bg-muted/30 p-4 w-full h-full overflow-hidden flex items-center justify-center">
+        <div className="w-full h-full flex items-center justify-center overflow-hidden">
           {renderContent()}
         </div>
       </div>

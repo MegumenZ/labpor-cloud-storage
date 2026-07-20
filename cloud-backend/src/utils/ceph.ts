@@ -89,6 +89,18 @@ export async function getAvatarUrl(avatar: string | null): Promise<string | null
     return avatar;
 }
 
+export function fixHttpsUrl(url: string | null): string | null {
+    if (!url) return null;
+    const frontendUrl = process.env.FRONTEND_URL || "https://100.83.191.96";
+    if (frontendUrl.startsWith("https://")) {
+        const host = frontendUrl.replace("https://", "").replace(/\/$/, "");
+        return url
+            .replace(/^http:\/\/[^\/]+:8000\//, `https://${host}/s3/`)
+            .replace(/^http:\/\/[^\/]+\//, `https://${host}/s3/`);
+    }
+    return url;
+}
+
 /**
  * Menghasilkan presigned URL untuk melihat pratinjau (inline) dan mengunduh berkas (attachment).
  * Valid selama 1 jam (3600 detik).
@@ -102,26 +114,46 @@ export async function getPresignedUrls(storagePath: string | null, type: string 
             ResponseContentType: type || undefined,
             ResponseContentDisposition: "inline",
         });
-        const previewUrl = await getSignedUrl(s3, previewCmd, { expiresIn: 3600 });
+        const rawPreviewUrl = await getSignedUrl(s3, previewCmd, { expiresIn: 3600 });
 
         const downloadCmd = new GetObjectCommand({
             Bucket: BUCKET_NAME,
             Key: storagePath,
             ResponseContentDisposition: `attachment; filename="${encodeURIComponent(name)}"`,
         });
-        const downloadUrl = await getSignedUrl(s3, downloadCmd, { expiresIn: 3600 });
+        const rawDownloadUrl = await getSignedUrl(s3, downloadCmd, { expiresIn: 3600 });
 
-        return { previewUrl, downloadUrl };
+        return { 
+            previewUrl: fixHttpsUrl(rawPreviewUrl), 
+            downloadUrl: fixHttpsUrl(rawDownloadUrl) 
+        };
     } catch (err: any) {
         console.error(`Failed to generate presigned URLs for ${name}:`, err.message);
         return { previewUrl: null, downloadUrl: null };
     }
 }
 
+export interface DescendantFile {
+    id: string;
+    userId: string;
+    parentId: string | null;
+    name: string;
+    type: string;
+    size: number;
+    storagePath: string | null;
+    isFolder: boolean;
+    isDeleted: boolean;
+    isFavorite: boolean;
+    createdAt: Date;
+    deletedAt: Date | null;
+    deletedBy: string | null;
+    allowEdit: boolean;
+}
+
 /**
  * Mengambil seluruh keturunan folder secara rekursif dari database PostgreSQL.
  */
-export async function getAllDescendants(folderId: string): Promise<any[]> {
+export async function getAllDescendants(folderId: string): Promise<Array<Record<string, any>>> {
     const result = await db.execute(sql`
         WITH RECURSIVE descendants AS (
             SELECT * FROM files WHERE parent_id = ${folderId}
@@ -132,7 +164,7 @@ export async function getAllDescendants(folderId: string): Promise<any[]> {
         SELECT * FROM descendants;
     `);
 
-    return result.map((row: any) => ({
+    return result.map((row: Record<string, any>) => ({
         id: row.id,
         userId: row.user_id,
         parentId: row.parent_id,
@@ -140,21 +172,22 @@ export async function getAllDescendants(folderId: string): Promise<any[]> {
         type: row.type,
         size: Number(row.size),
         storagePath: row.storage_path,
-        isFolder: row.is_folder === true || row.is_folder === 'true' || row.is_folder === 1,
-        isDeleted: row.is_deleted === true || row.is_deleted === 'true' || row.is_deleted === 1,
-        isFavorite: row.is_favorite === true || row.is_favorite === 'true' || row.is_favorite === 1,
+        isFolder: toBool(row.is_folder),
+        isDeleted: toBool(row.is_deleted),
+        isFavorite: toBool(row.is_favorite),
         createdAt: row.created_at,
         deletedAt: row.deleted_at,
         deletedBy: row.deleted_by,
-        allowEdit: row.allow_edit === true || row.allow_edit === 'true' || row.allow_edit === 1
+        allowEdit: toBool(row.allow_edit)
     }));
 }
 
 /**
  * Menghapus objek berkas secara fisik dari Ceph S3 dengan pencatatan logs detail.
+ * Mengembalikan status boolean sukses/gagal agar caller dapat menangani status error.
  */
-export async function deletePhysicalFile(storagePath: string | null, userId?: string) {
-    if (!storagePath) return;
+export async function deletePhysicalFile(storagePath: string | null, userId?: string): Promise<boolean> {
+    if (!storagePath) return false;
     try {
         const start = Date.now();
         await s3.send(new DeleteObjectCommand({
@@ -167,10 +200,12 @@ export async function deletePhysicalFile(storagePath: string | null, userId?: st
             elapsedMs: duration,
             metadata: { bucket: BUCKET_NAME, key: storagePath }
         });
+        return true;
     } catch (err: any) {
         await writeLog("ERROR", "CEPH", `Failed to delete file from Ceph S3 ${storagePath}: ${err.message}`, {
             userId,
             errorStack: err.stack
         });
+        return false;
     }
 }

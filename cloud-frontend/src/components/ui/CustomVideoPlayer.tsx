@@ -248,7 +248,9 @@ export default function CustomVideoPlayer({ src, name, downloadUrl }: CustomVide
       ref={containerRef}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-      className="relative flex items-center justify-center w-full h-auto max-h-[70vh] bg-black overflow-hidden group select-none transition-all duration-300"
+      className={`relative flex items-center justify-center w-full bg-black overflow-hidden group select-none transition-all duration-300 ${
+        isFullscreen ? "w-full h-full max-h-none" : "h-auto max-h-[70vh]"
+      }`}
     >
       <style>{`
         @keyframes centerIconAnim {
@@ -280,7 +282,9 @@ export default function CustomVideoPlayer({ src, name, downloadUrl }: CustomVide
       <video
         ref={videoRef}
         src={src}
-        className="w-full h-auto max-h-[70vh] object-contain cursor-pointer bg-black"
+        className={`w-full object-contain cursor-pointer bg-black ${
+          isFullscreen ? "w-full h-full max-h-none" : "h-auto max-h-[70vh]"
+        }`}
         onClick={togglePlay}
         onDoubleClick={toggleFullscreen}
         onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)}

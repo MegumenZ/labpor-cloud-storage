@@ -30,7 +30,7 @@ const SidebarItem = ({
   <button
     onClick={onClick}
     className={`w-full flex items-center gap-3 py-3 rounded-xl font-bold transition-all duration-300 active:scale-[0.98] cursor-pointer border-l-4 ${active
-      ? "bg-gradient-to-r from-sidebar-primary/15 to-transparent border-sidebar-primary text-sidebar-primary pl-3 shadow-none"
+      ? "bg-linear-to-r from-sidebar-primary/15 to-transparent border-sidebar-primary text-sidebar-primary pl-3 shadow-none"
       : "border-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground hover:pl-5 pl-4"
       }`}
   >
@@ -112,14 +112,14 @@ export function Sidebar({
       <div className="px-6 mb-6 space-y-2">
         <button
           onClick={() => fileInputRef.current?.click()}
-          disabled={!isStorageOnline}
+          disabled={!isStorageOnline || viewMode !== "files"}
           className="w-full bg-primary text-primary-foreground py-3.5 rounded-xl font-bold hover:bg-primary/95 hover:shadow-xl hover:shadow-primary/10 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-primary/5 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none"
         >
           <Upload size={20} /> Upload File
         </button>
         <button
           onClick={onCreateFolder}
-          disabled={!isStorageOnline}
+          disabled={!isStorageOnline || viewMode !== "files"}
           className="w-full bg-card border border-border hover:border-primary/50 hover:text-primary hover:bg-primary/5 text-foreground py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-300 active:scale-[0.98] font-bold cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none"
         >
           <Plus size={20} /> New Folder

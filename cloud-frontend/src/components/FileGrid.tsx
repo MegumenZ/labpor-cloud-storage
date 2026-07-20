@@ -1,36 +1,22 @@
 import { useState, useMemo } from "react";
 import {
-  Folder,
-  FileText,
-  Image as ImageIcon,
-  File,
-  Film,
-  Music,
   MoreVertical,
-  Eye,
-  Download,
-  Edit2,
-  FolderInput,
-  Info,
   Trash2,
   Cloud,
-  FileSpreadsheet,
-  FileType,
   RefreshCw,
   LayoutGrid,
   List,
   Star,
   Lock,
-  Unlock
 } from "lucide-react";
+import { formatSize } from "../utils/format";
+import { getIcon } from "../utils/icons";
 import type { FileItem } from "../types";
 import {
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FileActionsMenu } from "./FileActionsMenu";
 
 interface FileGridProps {
   files: FileItem[];
@@ -84,41 +70,6 @@ export function FileGrid({
   const handleLayoutChange = (layout: "grid" | "list") => {
     setViewLayout(layout);
     localStorage.setItem("fileViewLayout", layout);
-  };
-
-  const getIcon = (f: FileItem, iconSize = 40) => {
-    if (f.isFolder)
-      return <Folder className="text-blue-500 fill-blue-500/20" size={iconSize} />;
-    const t = f.type.toLowerCase();
-    const e = f.name.split(".").pop()?.toLowerCase() || "";
-
-    if (t.includes("image"))
-      return <ImageIcon className="text-purple-500" size={iconSize} />;
-    if (t.includes("video"))
-      return <Film className="text-pink-500" size={iconSize} />;
-    if (t.includes("audio"))
-      return <Music className="text-green-500" size={iconSize} />;
-    if (t.includes("pdf") || ["doc", "docx", "odt", "rtf"].includes(e))
-      return <FileText className="text-blue-500" size={iconSize} />;
-    if (["xls", "xlsx", "csv"].includes(e))
-      return <FileSpreadsheet className="text-green-500" size={iconSize} />;
-    if (["ppt", "pptx"].includes(e))
-      return <FileType className="text-orange-500" size={iconSize} />;
-
-    return <File className="text-slate-400" size={iconSize} />;
-  };
-
-  const formatFileSize = (size: string | number) => {
-    if (typeof size === "string" && /[a-zA-Z]/.test(size)) return size;
-
-    const bytes = typeof size === "number" ? size : parseFloat(size);
-    if (isNaN(bytes)) return String(size);
-    if (bytes === 0) return "0 B";
-
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
   };
 
   // Performa: Gunakan useMemo untuk mengurutkan file secara instan di sisi klien
@@ -355,65 +306,17 @@ export function FileGrid({
                           <MoreVertical size={18} />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48 bg-popover border border-border shadow-2xl rounded-xl p-1 z-50 text-popover-foreground">
-                        {!file.isFolder && (
-                          <DropdownMenuItem
-                            onClick={() => onSelect(file)}
-                            className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
-                          >
-                            <Eye size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Open
-                          </DropdownMenuItem>
-                        )}
-                        {!file.isFolder && (
-                          <DropdownMenuItem
-                            onClick={() => onDownload(file)}
-                            className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
-                          >
-                            <Download size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Download
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem
-                          onClick={() => onRename(file)}
-                          className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
-                        >
-                          <Edit2 size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => onMove(file)}
-                          className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
-                        >
-                          <FolderInput size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Move
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => onProperties(file)}
-                          className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
-                        >
-                          <Info size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Info
-                        </DropdownMenuItem>
-                        {currentUser && file.uploaderUsername === currentUser && (
-                          <DropdownMenuItem
-                            onClick={() => onToggleLock?.(file)}
-                            className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
-                          >
-                            {file.allowEdit ? (
-                              <>
-                                <Lock size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Lock Editing
-                              </>
-                            ) : (
-                              <>
-                                <Unlock size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Unlock Editing
-                              </>
-                            )}
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator className="my-1 border-t border-border" />
-                        <DropdownMenuItem
-                          onClick={() => onDelete(file.id)}
-                          className="flex gap-2 items-center px-3 py-2 text-sm text-destructive font-medium hover:bg-destructive/10 dark:hover:bg-destructive/20 cursor-pointer rounded-lg transition-colors"
-                        >
-                          <Trash2 size={16} /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
+                      <FileActionsMenu
+                        file={file}
+                        currentUser={currentUser}
+                        onSelect={onSelect}
+                        onDownload={onDownload}
+                        onRename={onRename}
+                        onMove={onMove}
+                        onProperties={onProperties}
+                        onToggleLock={onToggleLock}
+                        onDelete={onDelete}
+                      />
                     </DropdownMenu>
                   </div>
                 )}
@@ -428,7 +331,7 @@ export function FileGrid({
                 </h3>
                 <div className="flex justify-between items-center mt-1.5">
                   <span className="text-[11px] text-muted-foreground font-semibold">
-                    {file.isFolder ? "Folder" : formatFileSize(file.size)}
+                    {file.isFolder ? "Folder" : formatSize(file.size)}
                   </span>
                   {isTrash ? (
                     file.deleterUsername && (
@@ -570,7 +473,7 @@ export function FileGrid({
 
                       {/* Size Column */}
                       <td className="py-3 px-6 text-muted-foreground hidden sm:table-cell">
-                        {file.isFolder ? "—" : formatFileSize(file.size)}
+                        {file.isFolder ? "—" : formatSize(file.size)}
                       </td>
 
                       {/* Type Column */}
@@ -632,65 +535,17 @@ export function FileGrid({
                                 <MoreVertical size={16} />
                               </button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-48 bg-popover border border-border shadow-2xl rounded-xl p-1 z-50 text-popover-foreground">
-                              {!file.isFolder && (
-                                <DropdownMenuItem
-                                  onClick={() => onSelect(file)}
-                                  className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
-                                >
-                                  <Eye size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Open
-                                </DropdownMenuItem>
-                              )}
-                              {!file.isFolder && (
-                                <DropdownMenuItem
-                                  onClick={() => onDownload(file)}
-                                  className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
-                                >
-                                  <Download size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Download
-                                </DropdownMenuItem>
-                              )}
-                              <DropdownMenuItem
-                                onClick={() => onRename(file)}
-                                className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
-                              >
-                                <Edit2 size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Rename
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => onMove(file)}
-                                className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
-                              >
-                                <FolderInput size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Move
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => onProperties(file)}
-                                className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
-                              >
-                                <Info size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Info
-                              </DropdownMenuItem>
-                              {currentUser && file.uploaderUsername === currentUser && (
-                                <DropdownMenuItem
-                                  onClick={() => onToggleLock?.(file)}
-                                  className="group flex gap-2 items-center px-3 py-2 text-sm text-foreground font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-lg transition-colors"
-                                >
-                                  {file.allowEdit ? (
-                                    <>
-                                      <Lock size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Lock Editing
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Unlock size={16} className="text-muted-foreground group-hover:text-accent-foreground" /> Unlock Editing
-                                    </>
-                                  )}
-                                </DropdownMenuItem>
-                              )}
-                              <DropdownMenuSeparator className="my-1 border-t border-border" />
-                              <DropdownMenuItem
-                                onClick={() => onDelete(file.id)}
-                                className="flex gap-2 items-center px-3 py-2 text-sm text-destructive font-medium hover:bg-destructive/10 dark:hover:bg-destructive/20 cursor-pointer rounded-lg transition-colors"
-                              >
-                                <Trash2 size={16} /> Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
+                            <FileActionsMenu
+                              file={file}
+                              currentUser={currentUser}
+                              onSelect={onSelect}
+                              onDownload={onDownload}
+                              onRename={onRename}
+                              onMove={onMove}
+                              onProperties={onProperties}
+                              onToggleLock={onToggleLock}
+                              onDelete={onDelete}
+                            />
                           </DropdownMenu>
                         )}
                       </td>

@@ -18,6 +18,9 @@ export const s3 = new S3Client({
         secretAccessKey,
     },
     forcePathStyle: true, // Required for custom S3 providers like Ceph RGW or MinIO
+    maxAttempts: 3, // Retry policy for enhanced S3 network resilience
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
     requestHandler: new FetchHttpHandler(),
 });
 
