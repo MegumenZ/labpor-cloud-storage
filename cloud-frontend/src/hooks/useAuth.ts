@@ -7,6 +7,16 @@ export interface StorageInfo {
   limit: number;
 }
 
+export function formatAvatarUrl(avatar: string | null | undefined): string | null {
+  if (!avatar) return null;
+  if (avatar.startsWith("http://") || avatar.startsWith("https://") || avatar.startsWith("blob:")) {
+    return avatar;
+  }
+  const cleanPath = avatar.replace(/^(uploads\/)?(avatars\/)?/, "");
+  const baseUrl = api.defaults.baseURL || "";
+  return `${baseUrl}/uploads/avatars/${cleanPath}`;
+}
+
 export function useAuth() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState("");
@@ -43,19 +53,11 @@ export function useAuth() {
       limit: user.storageLimit || 0,
     });
     setIsStorageOnline(user.storageOnline !== false);
-    if (user.avatar) {
-      const avatar = user.avatar;
-      setUserAvatar(
-        avatar.startsWith("http")
-          ? avatar
-          : `${api.defaults.baseURL}/uploads/avatars/${avatar}`,
-      );
-    }
+    setUserAvatar(formatAvatarUrl(user.avatar));
   };
 
   const logout = async () => {
     await api.post("/auth/logout").catch(() => {});
-    localStorage.removeItem("token");
     setIsAuthenticated(false);
     setCurrentUser("");
     setDisplayName("");
@@ -75,8 +77,8 @@ export function useAuth() {
     if (updatedUser?.displayName !== undefined) {
       setDisplayName(updatedUser.displayName || "");
     }
-    if (updatedUser?.avatar) {
-      setUserAvatar(updatedUser.avatar);
+    if (updatedUser?.avatar !== undefined) {
+      setUserAvatar(formatAvatarUrl(updatedUser.avatar));
     }
   };
 
@@ -94,14 +96,7 @@ export function useAuth() {
               limit: res.data.user.storageLimit || 0,
             });
             setIsStorageOnline(res.data.user.storageOnline !== false);
-            if (res.data.user.avatar) {
-              const avatar = res.data.user.avatar;
-              setUserAvatar(
-                avatar.startsWith("http")
-                  ? avatar
-                  : `${api.defaults.baseURL}/uploads/avatars/${avatar}`,
-              );
-            }
+            setUserAvatar(formatAvatarUrl(res.data.user.avatar));
           }
         })
         .catch(() => {

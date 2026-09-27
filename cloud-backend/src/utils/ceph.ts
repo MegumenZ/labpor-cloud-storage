@@ -1,4 +1,4 @@
-import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3, BUCKET_NAME } from "../files/s3";
 import { db } from "../db";
@@ -12,6 +12,10 @@ let lastCacheTime = 0;
 let isStorageOnlineCache = true;
 let lastHealthCheckTime = 0;
 
+function toBool(val: any): boolean {
+    return val === true || val === 'true' || val === 1;
+}
+
 /**
  * Memeriksa apakah server Ceph RGW sedang online atau offline menggunakan HEAD request.
  * Dilengkapi cache 5 detik untuk menghindari spamming request.
@@ -22,16 +26,20 @@ export async function checkStorageOnline(): Promise<boolean> {
         return isStorageOnlineCache;
     }
 
-    const s3Endpoint = process.env.S3_ENDPOINT || "http://192.168.100.53:80";
+    const s3Endpoint = process.env.S3_ENDPOINT || "http://127.0.0.1:8000";
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1000); // 1.0 second timeout
+        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 seconds timeout
 
-        await fetch(s3Endpoint, { method: "HEAD", signal: controller.signal });
+        await fetch(s3Endpoint, { method: "GET", signal: controller.signal });
         clearTimeout(timeoutId);
         isStorageOnlineCache = true;
-    } catch (err) {
-        isStorageOnlineCache = false;
+    } catch (err: any) {
+        if (err?.code === "ECONNREFUSED" || err?.cause?.code === "ECONNREFUSED") {
+            isStorageOnlineCache = false;
+        } else {
+            isStorageOnlineCache = true;
+        }
     }
     lastHealthCheckTime = now;
     return isStorageOnlineCache;
@@ -48,7 +56,7 @@ export async function getCephCapacity(): Promise<number> {
         return lastCapacityCache;
     }
 
-    const promUrl = process.env.CEPH_PROM_URL || "http://192.168.100.53:9283/metrics";
+    const promUrl = process.env.CEPH_PROM_URL || "http://127.0.0.1:9283/metrics";
 
     try {
         const controller = new AbortController();
@@ -69,43 +77,47 @@ export async function getCephCapacity(): Promise<number> {
             }
         }
     } catch (err: any) {
-        console.warn(`[Ceph Monitor] Failed to fetch raw cluster capacity: ${err.message}. Using cached limit: ${(lastCapacityCache / (1024 * 1024 * 1024)).toFixed(2)} GB`);
+        // Soft fallback jika Prometheus exporter offline
     }
-
     return lastCapacityCache;
 }
 
-/**
- * Menghasilkan URL bertanda tangan (presigned URL) untuk avatar pengguna yang disimpan di Ceph.
- * Valid selama 24 jam.
- */
-export async function getAvatarUrl(avatar: string | null): Promise<string | null> {
-    if (!avatar) return null;
-    if (avatar.startsWith("http://") || avatar.startsWith("https://")) {
-        return avatar;
+export function fixHttpsUrl(url: string | null, requestHost?: string, requestProto?: string): string | null {
+    if (!url) return null;
+
+    let host = requestHost;
+    let proto = requestProto;
+
+    // Fallback ke .env jika header tidak terdeteksi (misal dari Postman/cURL)
+    if (!host || !proto) {
+        const frontendUrl = process.env.FRONTEND_URL || "https://100.83.191.96";
+        if (!proto) proto = frontendUrl.startsWith("http://") ? "http" : "https";
+        if (!host) host = frontendUrl.replace(/^https?:\/\//, "").replace(/\/$/, "");
     }
-    // Return relative path. The frontend will prepend baseUrl + "/uploads/avatars/".
-    // This allows same-origin HTTPS proxying via our backend.
-    return avatar;
+
+    // Bersihkan URL mentah dari AWS SDK
+    const cleanUrl = url
+        .replace(/^https?:\/\/[^\/]+:\d+\//, "")
+        .replace(/^https?:\/\/[^\/]+\//, "")
+        .replace(/^s3\//, "");
+
+    return `${proto}://${host}/s3/${cleanUrl}`;
 }
 
-export function fixHttpsUrl(url: string | null): string | null {
-    if (!url) return null;
-    const frontendUrl = process.env.FRONTEND_URL || "https://100.83.191.96";
-    if (frontendUrl.startsWith("https://")) {
-        const host = frontendUrl.replace("https://", "").replace(/\/$/, "");
-        return url
-            .replace(/^http:\/\/[^\/]+:8000\//, `https://${host}/s3/`)
-            .replace(/^http:\/\/[^\/]+\//, `https://${host}/s3/`);
-    }
-    return url;
+/**
+ * Menghasilkan jalur avatar murni dari database.
+ * Pemformatan URL proxy dilakukan secara terpusat oleh frontend formatAvatarUrl.
+ */
+export function getAvatarUrl(avatar: string | null): string | null {
+    if (!avatar) return null;
+    return avatar;
 }
 
 /**
  * Menghasilkan presigned URL untuk melihat pratinjau (inline) dan mengunduh berkas (attachment).
  * Valid selama 1 jam (3600 detik).
  */
-export async function getPresignedUrls(storagePath: string | null, type: string | null, name: string) {
+export async function getPresignedUrls(storagePath: string | null, type: string | null, name: string, requestHost?: string, requestProto?: string) {
     if (!storagePath) return { previewUrl: null, downloadUrl: null };
     try {
         const previewCmd = new GetObjectCommand({
@@ -123,36 +135,25 @@ export async function getPresignedUrls(storagePath: string | null, type: string 
         });
         const rawDownloadUrl = await getSignedUrl(s3, downloadCmd, { expiresIn: 3600 });
 
-        return { 
-            previewUrl: fixHttpsUrl(rawPreviewUrl), 
-            downloadUrl: fixHttpsUrl(rawDownloadUrl) 
-        };
+        let host = requestHost;
+        let proto = requestProto || "https";
+        if (!host) {
+            const frontendUrl = process.env.FRONTEND_URL || "https://100.83.191.96";
+            if (frontendUrl.startsWith("http://")) proto = "http";
+            host = frontendUrl.replace(/^https?:\/\//, "").replace(/\/$/, "");
+        }
+
+        // Generate clean URLs that work across both proxy and direct routes
+        const previewUrl = fixHttpsUrl(rawPreviewUrl, host, proto);
+        const downloadUrl = fixHttpsUrl(rawDownloadUrl, host, proto);
+
+        return { previewUrl, downloadUrl };
     } catch (err: any) {
         console.error(`Failed to generate presigned URLs for ${name}:`, err.message);
         return { previewUrl: null, downloadUrl: null };
     }
 }
 
-export interface DescendantFile {
-    id: string;
-    userId: string;
-    parentId: string | null;
-    name: string;
-    type: string;
-    size: number;
-    storagePath: string | null;
-    isFolder: boolean;
-    isDeleted: boolean;
-    isFavorite: boolean;
-    createdAt: Date;
-    deletedAt: Date | null;
-    deletedBy: string | null;
-    allowEdit: boolean;
-}
-
-/**
- * Mengambil seluruh keturunan folder secara rekursif dari database PostgreSQL.
- */
 export async function getAllDescendants(folderId: string): Promise<Array<Record<string, any>>> {
     const result = await db.execute(sql`
         WITH RECURSIVE descendants AS (

@@ -24,11 +24,24 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || process.env.FRONTEND_URL 
 
 const app = new Elysia({
     serve: {
-        maxRequestBodySize: 1024 * 1024 * 1024 * 50 // 50GB in bytes
+        maxRequestBodySize: 1024 * 1024 * 1024 * 500 // 500GB matching Bab III specification
     }
 })
     .use(cors({
-        origin: allowedOrigins,
+        origin: (request) => {
+            const origin = request.headers.get("origin");
+            if (!origin) return true; // Allow non-browser requests (cURL/Postman)
+            
+            // Check explicit whitelist
+            if (allowedOrigins.includes(origin)) return true;
+            
+            // Check private LAN subnets (192.168.x.x, 10.x.x.x, 172.16-31.x.x, localhost)
+            if (/^https?:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+                return true;
+            }
+            
+            return false;
+        },
         credentials: true,
     }))
     .use(authPlugin)
@@ -84,17 +97,23 @@ const app = new Elysia({
                 Key: safePath,
             });
             const response = await s3.send(command);
-            if (!response.Body) {
-                set.status = 404;
-                return { message: "Avatar not found" };
+            if (response.Body) {
+                set.headers["content-type"] = response.ContentType || "image/jpeg";
+                const bytes = await response.Body.transformToByteArray();
+                return new Response(bytes as unknown as BodyInit);
             }
-            set.headers["content-type"] = response.ContentType || "image/jpeg";
-            const bytes = await response.Body.transformToByteArray();
-            return new Response(bytes);
-        } catch (err: any) {
-            set.status = 404;
-            return { message: "Avatar not found" };
-        }
+        } catch (err: any) {}
+
+        try {
+            const localFile = Bun.file(`uploads/${safePath}`);
+            if (await localFile.exists()) {
+                return new Response(localFile);
+            }
+        } catch (err: any) {}
+
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"/></svg>`;
+        set.headers["content-type"] = "image/svg+xml";
+        return new Response(svg);
     })
     .use(staticPlugin({
         assets: "uploads",
@@ -107,6 +126,7 @@ const app = new Elysia({
     .onError(async ({ error, set, code, request }) => {
         const rawIp = request.headers.get("x-forwarded-for") || "127.0.0.1";
         const ip = rawIp.split(",")[0].trim();
+        const errorMsg = (error as any)?.message || String(error);
 
         if (code === "NOT_FOUND") {
             await writeLog("INFO", "HTTP", `Resource not found: ${request.url}`, { ip });
@@ -115,26 +135,26 @@ const app = new Elysia({
         }
         
         if (code === "VALIDATION") {
-            await writeLog("WARN", "SYSTEM", `Validation failure: ${error.message}`, {
+            await writeLog("WARN", "SYSTEM", `Validation failure: ${errorMsg}`, {
                 ip,
                 metadata: {
                     errors: (error as any).all
                 }
             });
             set.status = 400;
-            return { message: error.message, errors: (error as any).all };
+            return { message: errorMsg, errors: (error as any).all };
         }
         
         if (error?.name === "AuthenticationError" || error instanceof AuthenticationError) {
-            await writeLog("WARN", "AUTH", `Authentication failed: ${error.message}`, { ip });
+            await writeLog("WARN", "AUTH", `Authentication failed: ${errorMsg}`, { ip });
             set.status = 401;
-            return { message: error.message };
+            return { message: errorMsg };
         }
 
         // Log unhandled server errors as ERROR level
-        await writeLog("ERROR", "ERROR", `Unhandled server error: ${error.message}`, {
+        await writeLog("ERROR", "ERROR", `Unhandled server error: ${errorMsg}`, {
             ip,
-            errorStack: error.stack
+            errorStack: (error as any)?.stack
         });
 
         set.status = 500;

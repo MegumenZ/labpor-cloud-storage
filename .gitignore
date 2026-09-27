@@ -8,3 +8,5 @@ dist/
 .env.local
 logs/
 *.log
+cookies.txt
+user_inputs*.txt

@@ -13,6 +13,7 @@ import type { User as UserType } from "../../types";
 import { DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { formatAvatarUrl } from "../../hooks/useAuth";
 
 interface ProfileModalProps {
   onClose: () => void;
@@ -59,14 +60,7 @@ export default function ProfileModal({ onClose, onUpdate }: ProfileModalProps) {
   useEffect(() => {
     if (!isEditing && profile) {
       setDisplayName(profile.displayName || "");
-      const avatar = profile.avatar;
-      const baseUrl = api.defaults.baseURL || (import.meta.env.DEV ? "http://localhost:3001" : "");
-      const fullAvatarUrl = avatar
-        ? (avatar.startsWith("http")
-            ? avatar
-            : `${baseUrl}/uploads/avatars/${avatar}`)
-        : null;
-      setPreviewAvatar(fullAvatarUrl);
+      setPreviewAvatar(formatAvatarUrl(profile.avatar));
       setAvatarFile(null);
     }
   }, [isEditing, profile]);
@@ -104,6 +98,9 @@ export default function ProfileModal({ onClose, onUpdate }: ProfileModalProps) {
         return;
       }
 
+      if (previewAvatar && previewAvatar.startsWith("blob:")) {
+        URL.revokeObjectURL(previewAvatar);
+      }
       setAvatarFile(file);
       setPreviewAvatar(URL.createObjectURL(file));
     }
@@ -127,16 +124,9 @@ export default function ProfileModal({ onClose, onUpdate }: ProfileModalProps) {
         setIsEditing(false);
 
         if (onUpdate) {
-          const baseUrl = api.defaults.baseURL || (import.meta.env.DEV ? "http://localhost:3001" : "");
-          const fullAvatarUrl = updatedUser.avatar
-            ? (updatedUser.avatar.startsWith("http")
-                ? updatedUser.avatar
-                : `${baseUrl}/uploads/avatars/${updatedUser.avatar}`)
-            : null;
-
           onUpdate({
             ...updatedUser,
-            avatar: fullAvatarUrl,
+            avatar: formatAvatarUrl(updatedUser.avatar),
           });
         }
       }

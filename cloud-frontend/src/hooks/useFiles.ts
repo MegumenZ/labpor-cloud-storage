@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../api";
 import type { FileItem } from "../types";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ export interface UploadingFile {
   name: string;
   progress: number;
   statusText?: string;
+  speedText?: string;
   controller: AbortController;
 }
 
@@ -82,11 +83,71 @@ export function useFiles(
     });
   }, []);
 
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const fetchAbortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (fetchAbortControllerRef.current) {
+        fetchAbortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
   const fetchFiles = useCallback(async () => {
     if (!isAuthenticated) return;
+
+    // Batalkan request sebelumnya yang masih berjalan untuk mencegah race condition
+    if (fetchAbortControllerRef.current) {
+      fetchAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    fetchAbortControllerRef.current = controller;
+
     setLoading(true);
     try {
-      const params: Record<string, string> = {};
+      const params: Record<string, string> = { page: "1", limit: "50" };
+      if (viewMode === "trash") {
+        params.trash = "true";
+      } else if (viewMode === "favorites") {
+        params.favorite = "true";
+      }
+
+      if (searchQuery) {
+        params.search = searchQuery;
+      } else if (
+        viewMode !== "trash" &&
+        viewMode !== "favorites" &&
+        currentFolderId
+      ) {
+        params.folderId = currentFolderId;
+      }
+
+      const res = await api.get("/files", { params, signal: controller.signal });
+      setFiles(res.data.data || []);
+      setHasMore(Boolean(res.data.hasMore));
+      setPage(1);
+    } catch (err: any) {
+      if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") {
+        return; // Request lama dibatalkan karena aksi baru, abaikan
+      }
+      console.error(err);
+    } finally {
+      if (fetchAbortControllerRef.current === controller) {
+        setLoading(false);
+      }
+    }
+  }, [isAuthenticated, currentFolderId, searchQuery, viewMode]);
+
+  const fetchMoreFiles = useCallback(async () => {
+    if (!isAuthenticated || !hasMore || loadingMore || loading) return;
+    setLoadingMore(true);
+    const nextPage = page + 1;
+    try {
+      const params: Record<string, string> = { page: String(nextPage), limit: "50" };
       if (viewMode === "trash") {
         params.trash = "true";
       } else if (viewMode === "favorites") {
@@ -104,13 +165,20 @@ export function useFiles(
       }
 
       const res = await api.get("/files", { params });
-      setFiles(res.data.data);
+      const newItems = res.data.data || [];
+      setFiles((prev) => {
+        const existingIds = new Set(prev.map((f) => f.id));
+        const filteredNew = newItems.filter((f: FileItem) => !existingIds.has(f.id));
+        return [...prev, ...filteredNew];
+      });
+      setHasMore(Boolean(res.data.hasMore));
+      setPage(nextPage);
     } catch (err) {
-      console.error(err);
+      console.error("Gagal memuat berkas tambahan:", err);
     } finally {
-      setLoading(false);
+      setLoadingMore(false);
     }
-  }, [isAuthenticated, currentFolderId, searchQuery, viewMode]);
+  }, [isAuthenticated, hasMore, loadingMore, loading, page, viewMode, searchQuery, currentFolderId]);
 
   useEffect(() => {
     setSearchQuery("");
@@ -188,7 +256,14 @@ export function useFiles(
       return;
     }
 
-    const uploadId = crypto.randomUUID();
+function safeUUID(): string {
+  if (typeof window !== "undefined" && window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}-${Math.random().toString(36).substring(2, 11)}`;
+}
+
+    const uploadId = safeUUID();
     const controller = new AbortController();
     const tempUrl = URL.createObjectURL(file);
 
@@ -197,6 +272,8 @@ export function useFiles(
       ...prev,
       { id: uploadId, name: file.name, progress: 0, statusText: "Menyiapkan unggahan...", controller },
     ]);
+
+    const startTime = Date.now();
 
     try {
       const res = await api.post("/files/stream-upload", file, {
@@ -209,16 +286,28 @@ export function useFiles(
         signal: controller.signal,
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
+            const elapsedSeconds = Math.max((Date.now() - startTime) / 1000, 0.1);
+            const bytesPerSec = progressEvent.loaded / elapsedSeconds;
+            
+            let speedText = "";
+            if (bytesPerSec >= 1024 * 1024) {
+              speedText = `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
+            } else if (bytesPerSec >= 1024) {
+              speedText = `${(bytesPerSec / 1024).toFixed(0)} KB/s`;
+            } else {
+              speedText = `${Math.round(bytesPerSec)} B/s`;
+            }
+
             const percentCompleted = Math.round(
               (progressEvent.loaded * 95) / progressEvent.total
             );
             const statusText = percentCompleted >= 95 
-              ? "Menyimpan berkas..." 
-              : `Mengunggah... ${percentCompleted}%`;
+              ? `Menyimpan... (${speedText})` 
+              : `${percentCompleted}% (${speedText})`;
 
             setUploadingFiles((prev) =>
               prev.map((f) =>
-                f.id === uploadId ? { ...f, progress: percentCompleted, statusText } : f
+                f.id === uploadId ? { ...f, progress: percentCompleted, statusText, speedText } : f
               )
             );
           }
@@ -247,8 +336,10 @@ export function useFiles(
       }
     } finally {
       URL.revokeObjectURL(tempUrl);
-      // Hapus dari antrean upload
-      setUploadingFiles((prev) => prev.filter((f) => f.id !== uploadId));
+      // Jeda 1.5 detik agar pengguna sempat melihat status "Selesai!" berwarna hijau (100%)
+      setTimeout(() => {
+        setUploadingFiles((prev) => prev.filter((f) => f.id !== uploadId));
+      }, 1500);
     }
   };
 
@@ -326,23 +417,24 @@ export function useFiles(
   };
 
   const handleDownload = async (f: FileItem) => {
-    const toastId = toast.loading(`Mengunduh "${f.name}"...`);
     try {
-      const res = await api.get(`/files/${f.id}/download`, {
-        responseType: "blob",
+      const downloadTarget = `${api.defaults.baseURL || ""}/files/${f.id}/download`;
+
+      // Pre-check HTTP validity via backend HEAD route using configured API client
+      await api.head(`/files/${f.id}/download`, {
+        validateStatus: (status) => (status >= 200 && status < 300) || status === 405,
       });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
+
       const link = document.createElement("a");
-      link.href = url;
+      link.href = downloadTarget;
       link.setAttribute("download", f.name);
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.URL.revokeObjectURL(url);
-      toast.success(`Selesai mengunduh "${f.name}"`, { id: toastId });
+      toast.info(`Memulai unduhan berkas "${f.name}"...`);
     } catch (err) {
       console.error(err);
-      toast.error(`Gagal mengunduh "${f.name}"`, { id: toastId });
+      toast.error(`Gagal mengunduh berkas "${f.name}": Tautan tidak valid atau kedaluwarsa.`);
     }
   };
 
@@ -351,23 +443,39 @@ export function useFiles(
   };
 
   const handleToggleFavorite = async (file: FileItem) => {
-    setFiles((prev) =>
-      prev.map((f) =>
+    setFiles((prev) => {
+      if (viewMode === "favorites" && file.isFavorite) {
+        setSelectedIds((prevIds) => {
+          const next = new Set(prevIds);
+          next.delete(file.id);
+          return next;
+        });
+        return prev.filter((f) => f.id !== file.id);
+      }
+      return prev.map((f) =>
         f.id === file.id ? { ...f, isFavorite: !f.isFavorite } : f
-      )
-    );
+      );
+    });
     try {
-      await api.patch(`/files/${file.id}/favorite`);
+      const res = await api.patch(`/files/${file.id}/favorite`);
+      const serverIsFavorite = res.data?.data?.isFavorite;
+      if (typeof serverIsFavorite === "boolean" && viewMode !== "favorites") {
+        setFiles((prev) =>
+          prev.map((f) => (f.id === file.id ? { ...f, isFavorite: serverIsFavorite } : f))
+        );
+      }
       toast.success(
         file.isFavorite ? "Dihapus dari Favorit" : "Ditambahkan ke Favorit"
       );
     } catch (err) {
       console.error("Failed to toggle favorite:", err);
-      setFiles((prev) =>
-        prev.map((f) =>
-          f.id === file.id ? { ...f, isFavorite: !!file.isFavorite } : f
-        )
-      );
+      if (viewMode === "favorites") {
+        fetchFiles();
+      } else {
+        setFiles((prev) =>
+          prev.map((f) => (f.id === file.id ? { ...f, isFavorite: file.isFavorite } : f))
+        );
+      }
       toast.error("Gagal memperbarui status favorit");
     }
   };
@@ -486,27 +594,38 @@ export function useFiles(
     }
 
     const toastId = toast.loading(`Memulai proses unduh ${selectedOnlyFiles.length} berkas...`);
+    let successCount = 0;
+    const failedFiles: string[] = [];
 
     for (let i = 0; i < selectedOnlyFiles.length; i++) {
       const f = selectedOnlyFiles[i];
       try {
-        const res = await api.get(`/files/${f.id}/download`, {
-          responseType: "blob",
+        const downloadTarget = `${api.defaults.baseURL || ""}/files/${f.id}/download`;
+
+        // Pre-check HTTP validity via backend HEAD route using configured API client
+        await api.head(`/files/${f.id}/download`, {
+          validateStatus: (status) => (status >= 200 && status < 300) || status === 405,
         });
-        const url = window.URL.createObjectURL(new Blob([res.data]));
+
         const link = document.createElement("a");
-        link.href = url;
+        link.href = downloadTarget;
         link.setAttribute("download", f.name);
         document.body.appendChild(link);
         link.click();
         link.remove();
-        window.URL.revokeObjectURL(url);
+        successCount++;
         await new Promise((resolve) => setTimeout(resolve, 300));
       } catch (err) {
         console.error(`Failed to download ${f.name}:`, err);
+        failedFiles.push(f.name);
       }
     }
-    toast.success("Seluruh unduhan berhasil dijalankan!", { id: toastId });
+
+    if (failedFiles.length === 0) {
+      toast.success(`${successCount} berkas berhasil diunduh!`, { id: toastId });
+    } else {
+      toast.error(`${successCount} berhasil, ${failedFiles.length} gagal: ${failedFiles.join(", ")}`, { id: toastId });
+    }
   };
 
   const handleNavigate = (folderId: string | null) => {
@@ -616,6 +735,8 @@ export function useFiles(
     // Files and loading state
     files,
     loading,
+    hasMore,
+    loadingMore,
     currentFolderId,
     folderStack,
     searchQuery,
@@ -651,6 +772,7 @@ export function useFiles(
 
     // Core handlers
     fetchFiles,
+    fetchMoreFiles,
     performUpload,
     handleUploadInput,
     handleCreateFolder,

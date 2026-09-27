@@ -1,4 +1,4 @@
-import { Cloud, Upload, Plus, LayoutGrid, Star, Trash2, HardDrive, X } from "lucide-react";
+import { Upload, Plus, LayoutGrid, Star, Trash2, HardDrive, X } from "lucide-react";
 import { useRef } from "react";
 
 interface SidebarProps {
@@ -70,9 +70,9 @@ export function Sidebar({
   return (
     <aside className="w-full h-full bg-sidebar flex flex-col shrink-0 select-none">
       <div className="p-6 flex items-center justify-between text-sidebar-primary">
-        <div className="flex items-center gap-2">
-          <Cloud size={32} strokeWidth={2.5} />
-          <span className="text-xl font-extrabold tracking-tight">Labpro Storage</span>
+        <div className="flex items-center gap-3">
+          <img src="/logo-icon.png" alt="Labpro Logo" className="h-9 w-auto object-contain shrink-0" />
+          <span className="text-xl font-extrabold tracking-tight text-sidebar-foreground">Labpro Storage</span>
         </div>
         {onClose && (
           <button

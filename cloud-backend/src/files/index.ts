@@ -9,13 +9,19 @@ import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { writeLog } from "../utils/logger";
 import { getPresignedUrls, getAllDescendants, deletePhysicalFile, fixHttpsUrl } from "../utils/ceph";
+import { invalidateStorageCache } from "../utils/shared-queries";
 import { Readable } from "stream";
-import Busboy from "busboy";
 
 const BANNED_EXTENSIONS = [
     "html", "htm", "js", "ts", "php", "phtml", "php3", "php4", "php5", "phps",
     "asp", "aspx", "jsp", "exe", "bat", "sh", "cmd", "vbs", "com", "scr"
 ];
+
+function getReqHostAndProto(c: any) {
+    const requestHost = c.request?.headers?.get("host") || undefined;
+    const requestProto = c.request?.headers?.get("x-forwarded-proto") || (c.request?.url ? new URL(c.request.url).protocol.replace(":", "") : undefined);
+    return { requestHost, requestProto };
+}
 
 export const filesRoutes = new Elysia({ prefix: "/files" })
     .use(authPlugin)
@@ -47,6 +53,10 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             conditions.push(sql`${userFavorites.id} IS NOT NULL`);
         }
 
+        const page = Math.max(1, parseInt(String(query.page || "1"), 10));
+        const limit = query.all === 'true' ? 10000 : Math.min(100, Math.max(1, parseInt(String(query.limit || "50"), 10)));
+        const offset = (page - 1) * limit;
+
         const uploader = alias(users, "uploader");
         const deleter = alias(users, "deleter");
 
@@ -74,19 +84,23 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         .leftJoin(uploader, eq(files.userId, uploader.id))
         .leftJoin(deleter, eq(files.deletedBy, deleter.id))
         .leftJoin(userFavorites, and(eq(files.id, userFavorites.fileId), eq(userFavorites.userId, user.id)))
-        .where(and(...conditions));
+        .where(and(...conditions))
+        .orderBy(desc(files.isFolder), desc(files.createdAt))
+        .limit(limit + 1)
+        .offset(offset) as any;
 
-        if (isRecent) {
-            queryBuilder = queryBuilder.orderBy(desc(files.createdAt)).limit(20) as any;
-        }
+        const { requestHost, requestProto } = getReqHostAndProto(c);
+        const rawResult = await queryBuilder;
+        
+        const hasMore = query.all === 'true' ? false : rawResult.length > limit;
+        const result = hasMore ? rawResult.slice(0, limit) : rawResult;
 
-        const result = await queryBuilder;
-        const data = await Promise.all(result.map(async (f) => {
-            const urls = await getPresignedUrls(f.storagePath, f.type, f.name);
+        const data = await Promise.all(result.map(async (f: any) => {
+            const urls = await getPresignedUrls(f.storagePath, f.type, f.name, requestHost, requestProto);
             return { ...f, ...urls };
         }));
 
-        return { data };
+        return { data, hasMore, page, limit };
     })
     .patch("/:id/favorite", async (c) => {
         const user = await requireAuth(c);
@@ -105,7 +119,8 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             .where(and(eq(userFavorites.fileId, fileId), eq(userFavorites.userId, user.id)))
             .limit(1);
 
-        const urls = await getPresignedUrls(file.storagePath, file.type, file.name);
+        const { requestHost, requestProto } = getReqHostAndProto(c);
+        const urls = await getPresignedUrls(file.storagePath, file.type, file.name, requestHost, requestProto);
         if (existingFavorite) {
             // Unfavorite
             await db.delete(userFavorites)
@@ -130,7 +145,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         }
         
         const payload = await jwtPlugin.verify(token);
-        if (!payload || payload.fileId !== id) {
+        if (!payload || (payload as any).fileId !== id) {
             set.status = 401;
             return { message: "Unauthorized: Invalid or expired presigned token" };
         }
@@ -191,6 +206,28 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             set.status = 500;
             return { message: "Error reading file from storage" };
         }
+    })
+    .head("/:id/download", async (c) => {
+        const user = await requireAuth(c);
+        const { params, set } = c;
+        const { id } = params;
+        const [file] = await db.select().from(files).where(eq(files.id, id));
+        if (!file || !file.storagePath) {
+            set.status = 404;
+            return { message: "File not found" };
+        }
+
+        if (file.isDeleted) {
+            if (file.userId !== user.id && file.deletedBy !== user.id) {
+                set.status = 403;
+                return { message: "Forbidden: Cannot download deleted file" };
+            }
+        }
+
+        set.headers["Content-Type"] = file.type;
+        set.headers["Content-Disposition"] = `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`;
+        set.headers["Content-Length"] = file.size.toString();
+        return new Response(null, { status: 200, headers: set.headers as HeadersInit });
     })
     .get("/:id/download", async (c) => {
         const user = await requireAuth(c);
@@ -256,7 +293,12 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             const filename = request.headers.get("x-file-name") || "uploaded-file";
             const fileType = request.headers.get("content-type") || "application/octet-stream";
             const parentId = request.headers.get("x-parent-id") || null;
-            const decodedFileName = decodeURIComponent(filename);
+            let decodedFileName = filename;
+            try {
+                decodedFileName = decodeURIComponent(filename);
+            } catch {
+                decodedFileName = filename.replace(/[^a-zA-Z0-9_.-]/g, "_");
+            }
 
             const extension = decodedFileName.split(".").pop()?.toLowerCase();
             if (!extension || BANNED_EXTENSIONS.includes(extension)) {
@@ -271,6 +313,11 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
             const safeFileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
             const storagePath = `${user.id}/${safeFileName}`;
+
+            if (!request.body) {
+                set.status = 400;
+                return { message: "Request body cannot be empty" };
+            }
 
             try {
                 const uploadStart = Date.now();
@@ -320,12 +367,15 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                     storagePath,
                 }).returning();
 
+                invalidateStorageCache();
+
                 const [dbUser] = await db.select({ displayName: users.displayName })
                     .from(users)
                     .where(eq(users.id, user.id))
                     .limit(1);
 
-                const urls = await getPresignedUrls(newFile.storagePath, newFile.type, newFile.name);
+                const { requestHost, requestProto } = getReqHostAndProto(c);
+                const urls = await getPresignedUrls(newFile.storagePath, newFile.type, newFile.name, requestHost, requestProto);
                 return {
                     data: {
                         ...newFile,
@@ -389,12 +439,15 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                 storagePath,
             }).returning();
 
+            invalidateStorageCache();
+
             const [dbUser] = await db.select({ displayName: users.displayName })
                 .from(users)
                 .where(eq(users.id, user.id))
                 .limit(1);
 
-            const urls = await getPresignedUrls(newFile.storagePath, newFile.type, newFile.name);
+            const { requestHost, requestProto } = getReqHostAndProto(c);
+            const urls = await getPresignedUrls(newFile.storagePath, newFile.type, newFile.name, requestHost, requestProto);
 
             return {
                 uploadUrl,
@@ -411,11 +464,11 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         "/upload",
         async (c) => {
             const user = await requireAuth(c);
-            const { set, request } = c;
+            const { set, body } = c;
 
-            const formData = await request.formData();
-            const uploadedFile = formData.get("file") as File | null;
-            const parentId = (formData.get("parentId") as string) || null;
+            const bodyData = body as any;
+            const uploadedFile = bodyData?.file as File | null;
+            const parentId = (bodyData?.parentId as string) || null;
 
             if (!uploadedFile) {
                 set.status = 400;
@@ -498,12 +551,15 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                 storagePath,
             }).returning();
 
+            invalidateStorageCache();
+
             const [dbUser] = await db.select({ displayName: users.displayName })
                 .from(users)
                 .where(eq(users.id, user.id))
                 .limit(1);
 
-            const urls = await getPresignedUrls(newFile.storagePath, newFile.type, newFile.name);
+            const { requestHost, requestProto } = getReqHostAndProto(c);
+            const urls = await getPresignedUrls(newFile.storagePath, newFile.type, newFile.name, requestHost, requestProto);
             return {
                 data: {
                     ...newFile,
@@ -593,6 +649,10 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                             }
                         }
                         const idsToDelete = [id, ...descendants.map(d => d.id)];
+                        // Set parentId to null first to prevent foreign key constraint violations
+                        await tx.update(files)
+                            .set({ parentId: null })
+                            .where(inArray(files.id, idsToDelete));
                         await tx.delete(files).where(inArray(files.id, idsToDelete));
                     } else {
                         if (file.storagePath) {
@@ -634,6 +694,8 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         for (const path of filesToDeleteFromS3) {
             await deletePhysicalFile(path, user.id);
         }
+
+        invalidateStorageCache();
 
         return { message: "File deleted" };
     })
@@ -689,13 +751,15 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             return { message: errMsg };
         }
 
+        invalidateStorageCache();
+
         return { message: "File restored" };
     })
     .put("/:id/rename", async (c) => {
         const user = await requireAuth(c);
         const { params, body, set } = c;
         const { id } = params;
-        const { newName } = body;
+        const { newName } = body as { newName: string };
 
         const trimmedName = newName.trim();
         if (!trimmedName || trimmedName.includes("..") || trimmedName.includes("/") || trimmedName.includes("\\")) {
@@ -790,6 +854,10 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
 
                 if (trashItems.length > 0) {
                     const trashIds = trashItems.map(item => item.id);
+                    // Set parentId to null first to prevent foreign key constraint violations
+                    await tx.update(files)
+                        .set({ parentId: null })
+                        .where(inArray(files.id, trashIds));
                     await tx.delete(files).where(inArray(files.id, trashIds));
                 }
             });
@@ -827,6 +895,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
             .where(eq(files.id, id))
             .returning();
 
-        const urls = await getPresignedUrls(updated[0].storagePath, updated[0].type, updated[0].name);
+        const { requestHost, requestProto } = getReqHostAndProto(c);
+        const urls = await getPresignedUrls(updated[0].storagePath, updated[0].type, updated[0].name, requestHost, requestProto);
         return { data: { ...updated[0], ...urls } };
     });

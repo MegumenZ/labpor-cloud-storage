@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Cloud, Lock, User, ArrowRight, Loader2, Eye, EyeOff } from "lucide-react";
+import { Lock, User, ArrowRight, Loader2, Eye, EyeOff } from "lucide-react";
 import api from "./api";
 
 interface LoginProps {
@@ -32,9 +32,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           setIsRegister(false);
           setSuccessMsg("Pendaftaran berhasil! Silakan masuk.");
         } else {
-          if (response.data.token) {
-            localStorage.setItem("token", response.data.token);
-          }
           onLoginSuccess(response.data.username, response.data.user);
         }
       }
@@ -58,8 +55,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         
         {/* Brand Header */}
         <div className="bg-white/5 p-8 text-center border-b border-white/5 backdrop-blur-md">
-          <div className="bg-white/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-white/10 shadow-lg shadow-white/5 group-hover:scale-105 transition-transform duration-300">
-            <Cloud size={32} className="text-blue-400" />
+          <div className="bg-white/10 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-white/10 shadow-lg shadow-white/5 group-hover:scale-105 transition-transform duration-300 p-3">
+            <img src="/logo-icon.png" alt="Labpro Logo" className="w-full h-full object-contain drop-shadow-lg" />
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">
             Labpro Storage

@@ -19,25 +19,43 @@ import { DialogContent, DialogTitle, DialogDescription } from "@/components/ui/d
 
 // DOCX file viewer component using mammoth
 const LocalDocxViewer = ({ url }: { url: string }) => {
-  const [html, setHtml] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<{ url: string; html: string; error: string | null }>({
+    url: "",
+    html: "",
+    error: null,
+  });
+
+  const isLoading = data.url !== url && !data.error;
 
   useEffect(() => {
-    setLoading(true);
+    let active = true;
+
     fetch(url)
-      .then((r) => r.arrayBuffer())
+      .then((r) => {
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}: Gagal mengambil berkas`);
+        }
+        return r.arrayBuffer();
+      })
       .then((b) => mammoth.convertToHtml({ arrayBuffer: b }))
       .then((r) => {
-        setHtml(r.value);
-        setLoading(false);
+        if (active) {
+          setData({ url, html: r.value, error: null });
+        }
       })
       .catch((err) => {
         console.error(err);
-        setLoading(false);
+        if (active) {
+          setData({ url, html: "", error: err.message || "Gagal memuat dokumen Word" });
+        }
       });
+
+    return () => {
+      active = false;
+    };
   }, [url]);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="w-full h-full flex items-center justify-center text-muted-foreground">
         Memuat dokumen Word...
@@ -45,10 +63,19 @@ const LocalDocxViewer = ({ url }: { url: string }) => {
     );
   }
 
+  if (data.error) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground gap-2 p-4 text-center">
+        <p className="text-destructive font-medium">Gagal memuat pratinjau dokumen Word</p>
+        <p className="text-xs text-muted-foreground">{data.error}</p>
+      </div>
+    );
+  }
+
   return (
     <div
       className="w-full h-full bg-background text-foreground p-8 overflow-y-auto prose dark:prose-invert max-w-none focus:outline-none"
-      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
+      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(data.html) }}
     />
   );
 };

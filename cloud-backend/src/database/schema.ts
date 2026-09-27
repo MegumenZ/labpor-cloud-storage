@@ -8,9 +8,10 @@ import {
   integer,
   bigint,
   index,
+  unique,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 // --- 1. TABEL USERS ---
 export const users = pgTable("users", {
@@ -60,7 +61,8 @@ export const files = pgTable("files", {
     parentIdIdx: index("parent_id_idx").on(table.parentId),
     userIdIsDeletedIdx: index("user_id_is_deleted_idx").on(table.userId, table.isDeleted),
     userIdIsFavoriteIdx: index("user_id_is_favorite_idx").on(table.userId, table.isFavorite),
-    createdAtIdx: index("created_at_idx").on(table.createdAt),
+    folderListingIdx: index("folder_listing_idx").on(table.userId, table.parentId, table.isDeleted, table.createdAt),
+    activeStorageIdx: index("active_storage_idx").on(table.size).where(sql`${table.isDeleted} = false`),
   };
 });
 
@@ -77,6 +79,7 @@ export const userFavorites = pgTable("user_favorites", {
 }, (table) => {
   return {
     userFileIdx: index("user_file_idx").on(table.userId, table.fileId),
+    userFileUnique: unique("user_file_unique").on(table.userId, table.fileId),
   };
 });
 

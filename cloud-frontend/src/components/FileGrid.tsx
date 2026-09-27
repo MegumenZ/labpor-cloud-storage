@@ -38,6 +38,10 @@ interface FileGridProps {
   // Shared Storage Props
   currentUser?: string;
   onToggleLock?: (file: FileItem) => void;
+  // Infinite Scroll Pagination
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onFetchMore?: () => void;
 }
 
 export function FileGrid({
@@ -57,7 +61,10 @@ export function FileGrid({
   onToggleSelectAll,
   onToggleFavorite,
   currentUser,
-  onToggleLock
+  onToggleLock,
+  hasMore,
+  loadingMore,
+  onFetchMore,
 }: FileGridProps) {
   const [viewLayout, setViewLayout] = useState<"grid" | "list">(() => {
     return (localStorage.getItem("fileViewLayout") as "grid" | "list") || "grid";
@@ -555,6 +562,25 @@ export function FileGrid({
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {hasMore && (
+        <div className="mt-8 flex justify-center pb-6">
+          <button
+            onClick={onFetchMore}
+            disabled={loadingMore}
+            className="px-6 py-3 bg-accent/80 hover:bg-accent border border-border text-foreground font-semibold rounded-2xl shadow-sm hover:shadow transition-all flex items-center gap-2 cursor-pointer disabled:opacity-60"
+          >
+            {loadingMore ? (
+              <>
+                <RefreshCw size={16} className="animate-spin text-primary" />
+                <span>Memuat berkas tambahan...</span>
+              </>
+            ) : (
+              <span>Tampilkan Berkas Selanjutnya</span>
+            )}
+          </button>
         </div>
       )}
     </div>

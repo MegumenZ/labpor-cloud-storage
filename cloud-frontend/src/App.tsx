@@ -33,6 +33,9 @@ export default function App({ auth }: { auth: any }) {
   const {
     files,
     loading,
+    hasMore,
+    loadingMore,
+    fetchMoreFiles,
     currentFolderId,
     folderStack,
     searchQuery,
@@ -184,6 +187,14 @@ export default function App({ auth }: { auth: any }) {
         onDragOver={isStorageOnline ? handleDragOver : undefined}
         onDragLeave={isStorageOnline ? handleDragLeave : undefined}
         onDrop={isStorageOnline ? handleDrop : undefined}
+        onScroll={(e) => {
+          const target = e.currentTarget;
+          if (target.scrollHeight - target.scrollTop - target.clientHeight < 300) {
+            if (hasMore && !loadingMore) {
+              fetchMoreFiles();
+            }
+          }
+        }}
       >
         {isDragging && (
           <div className="fixed inset-0 z-50 bg-blue-500/10 backdrop-blur-sm border-4 border-blue-500 border-dashed m-4 rounded-3xl flex items-center justify-center pointer-events-none">
@@ -243,6 +254,9 @@ export default function App({ auth }: { auth: any }) {
             <FileGrid
               files={files}
               loading={loading}
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              onFetchMore={fetchMoreFiles}
               onNavigate={handleEnterFolder}
               onSelect={setSelectedFile}
               onDownload={handleDownload}
@@ -323,7 +337,7 @@ export default function App({ auth }: { auth: any }) {
                     {file.name}
                   </span>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-muted-foreground text-[11px]">
+                    <span className="text-muted-foreground text-[11px] font-mono font-medium">
                       {file.statusText || `${file.progress}%`}
                     </span>
                     <button

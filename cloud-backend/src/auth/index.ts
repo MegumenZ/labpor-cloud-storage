@@ -236,33 +236,9 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 set.status = 500;
                 return { message: "Failed to save profile picture to cloud storage" };
             }
-
-            // Delete old avatar object from Ceph S3
-            if (oldAvatar && !oldAvatar.startsWith("http")) {
-                try {
-                    const deleteStart = Date.now();
-                    await s3.send(new DeleteObjectCommand({
-                        Bucket: BUCKET_NAME,
-                        Key: oldAvatar
-                    }));
-                    const deleteDuration = Date.now() - deleteStart;
-                    await writeLog("INFO", "CEPH", `Deleted old user avatar from Ceph S3: ${oldAvatar}`, {
-                        userId: profile.id,
-                        elapsedMs: deleteDuration,
-                        metadata: {
-                            bucket: BUCKET_NAME,
-                            key: oldAvatar
-                        }
-                    });
-                } catch (err: any) {
-                    await writeLog("WARN", "CEPH", `Failed to delete old user avatar from Ceph S3 ${oldAvatar}: ${err.message}`, {
-                        userId: profile.id,
-                        errorStack: err.stack
-                    });
-                }
-            }
         }
 
+        // 1. Commit DB update first to ensure DB integrity
         const [updatedUser] = await db.update(users)
             .set(updateData)
             .where(eq(users.id, profile.id))
@@ -274,9 +250,34 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
                 themePreference: users.themePreference
             });
 
+        // 2. Delete old avatar object from Ceph S3 ONLY AFTER DB update succeeds
+        if (avatar && oldAvatar && !oldAvatar.startsWith("http")) {
+            try {
+                const deleteStart = Date.now();
+                await s3.send(new DeleteObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: oldAvatar
+                }));
+                const deleteDuration = Date.now() - deleteStart;
+                await writeLog("INFO", "CEPH", `Deleted old user avatar from Ceph S3: ${oldAvatar}`, {
+                    userId: profile.id,
+                    elapsedMs: deleteDuration,
+                    metadata: {
+                        bucket: BUCKET_NAME,
+                        key: oldAvatar
+                    }
+                });
+            } catch (err: any) {
+                await writeLog("WARN", "CEPH", `Failed to delete old user avatar from Ceph S3 ${oldAvatar}: ${err.message}`, {
+                    userId: profile.id,
+                    errorStack: err.stack
+                });
+            }
+        }
+
         const returnedUser = {
             ...updatedUser,
-            avatar: await getAvatarUrl(updatedUser.avatar)
+            avatar: getAvatarUrl(updatedUser.avatar)
         };
 
         return {
