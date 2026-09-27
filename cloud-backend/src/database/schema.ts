@@ -104,7 +104,7 @@ export const rateLimits = pgTable("rate_limits", {
   resetAt: timestamp("reset_at").notNull(),
 });
 
-// --- 4. DEFINISI RELASI (Agar Drizzle pintar saat query) ---
+// --- 5. DEFINISI RELASI (Agar Drizzle pintar saat query) ---
 
 // Satu User punya BANYAK File & BANYAK Favorite
 export const usersRelations = relations(users, ({ many }) => ({
