@@ -10,3 +10,7 @@ logs/
 *.log
 cookies.txt
 user_inputs*.txt
+
+# Ignore local dotenv variants; keep the safe template tracked.
+.env.*
+!.env.example
