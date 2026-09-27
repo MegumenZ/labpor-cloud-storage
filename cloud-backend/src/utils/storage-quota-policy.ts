@@ -78,6 +78,10 @@ export function assertQuotaCapacity(
         }
     }
 
+    if (!Number.isSafeInteger(usedBytes + reservedBytes)) {
+        throw new RangeError("Combined storage usage is outside the supported safe integer range.");
+    }
+
     if (requestedBytes > Math.max(0, limitBytes - usedBytes - reservedBytes)) {
         throw new StorageQuotaExceededError(limitBytes, usedBytes, reservedBytes, requestedBytes);
     }
