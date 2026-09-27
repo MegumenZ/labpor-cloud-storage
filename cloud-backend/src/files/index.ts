@@ -525,7 +525,10 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                 ContentLength: size,
             });
 
-            const rawUploadUrl = await getSignedUrl(s3, putCmd, { expiresIn: 86400 });
+            const rawUploadUrl = await getSignedUrl(s3, putCmd, {
+                expiresIn: 86400,
+                signableHeaders: new Set(["content-length"]),
+            });
             const uploadUrl = fixHttpsUrl(rawUploadUrl);
 
             const newFile = await insertFileWithinQuota({
