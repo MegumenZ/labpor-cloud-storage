@@ -374,7 +374,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                 const sizeGuard = new Transform({
                     transform(chunk: any, encoding: string, callback: (error?: Error | null, data?: any) => void) {
                         const chunkBytes = typeof chunk === "string"
-                            ? Buffer.byteLength(chunk, encoding as BufferEncoding)
+                            ? Buffer.byteLength(chunk)
                             : (chunk as Uint8Array).byteLength;
                         totalUploadedBytes += chunkBytes;
 
