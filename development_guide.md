@@ -41,7 +41,7 @@ Repositori ini terbagi menjadi dua modul utama:
    cp .env.example .env
    ```
    Buka berkas `.env` dan sesuaikan nilainya:
-   * `DATABASE_URL`: Isi dengan URL PostgreSQL lokal Anda (contoh: `postgres://postgres:sandi123@localhost:5432/skripsi_cloud`).
+   * `DATABASE_URL`: Isi dengan URL PostgreSQL lokal Anda (contoh: `postgres://postgres:REPLACE_WITH_DATABASE_PASSWORD@localhost:5432/skripsi_cloud`).
    * `S3_ENDPOINT`: Arahkan ke endpoint Ceph RGW (atau `http://localhost:9000` jika menggunakan MinIO lokal).
    * Kredensial S3 (`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME`): Sesuai dengan bucket S3 Anda.
 
@@ -118,7 +118,7 @@ Jika Anda sedang mengembangkan atau menguji fitur Fluent Bit dan OpenSearch di k
    # Contoh perintah di Windows (jalankan PowerShell di dalam cloud-backend)
    & "C:\Program Files\fluent-bit\bin\fluent-bit.exe" -c fluent-bit-app.conf
    ```
-3. Buka browser ke `http://localhost:5601` untuk melihat visualisasi log di OpenSearch Dashboards lokal (kredensial default: `admin` / `LabproCephLogging2026!`).
+3. Buka browser ke `http://localhost:5601` untuk melihat visualisasi log di OpenSearch Dashboards lokal (gunakan user dan password yang dikonfigurasi melalui OPENSEARCH_USER dan OPENSEARCH_PASSWORD pada .env; jangan gunakan kredensial contoh).
 
 ---
 
