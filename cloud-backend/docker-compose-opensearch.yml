@@ -8,7 +8,7 @@ services:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
       - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m" # Batasi RAM ke 512MB agar VM tetap ringan
-      - "OPENSEARCH_INITIAL_ADMIN_PASSWORD=LabproCephLogging2026!"
+      - "OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD:?Set OPENSEARCH_PASSWORD in .env}"
     ulimits:
       memlock:
         soft: -1
