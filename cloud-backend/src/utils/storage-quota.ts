@@ -1,6 +1,5 @@
 import { eq, gt, lte, sql } from "drizzle-orm";
 import { db, files, uploadReservations } from "../db";
-import { getCephCapacity } from "./ceph";
 import { assertQuotaCapacity, validateUploadSize } from "./storage-quota-policy";
 
 const QUOTA_ADVISORY_LOCK_ID = 1380207461;
@@ -25,6 +24,8 @@ export async function getStorageQuotaLimit(): Promise<number> {
         return parsed;
     }
 
+    // Load Ceph integration only when no explicit quota override is configured.
+    const { getCephCapacity } = await import("./ceph");
     const capacity = Math.floor(await getCephCapacity());
     if (!Number.isSafeInteger(capacity) || capacity <= 0) {
         throw new Error("Unable to determine a valid storage quota limit.");
