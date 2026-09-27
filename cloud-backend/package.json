@@ -11,7 +11,8 @@
         "db:push": "drizzle-kit push",
         "db:studio": "drizzle-kit studio",
         "db:reset-files": "bun run src/utils/reset-files.ts",
-        "test:auto-delete": "bun run scripts/test_auto_delete.ts"
+        "test:auto-delete": "bun run scripts/test_auto_delete.ts",
+        "test:storage-quota": "bun run scripts/test_storage_quota.ts"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.1058.0",
