@@ -42,6 +42,10 @@ interface FileGridProps {
   hasMore?: boolean;
   loadingMore?: boolean;
   onFetchMore?: () => void;
+  // Sorting Props
+  sortField?: "name" | "size" | "type" | "createdAt";
+  sortOrder?: "asc" | "desc";
+  onSortChange?: (field: "name" | "size" | "type" | "createdAt", order: "asc" | "desc") => void;
 }
 
 export function FileGrid({
@@ -65,63 +69,103 @@ export function FileGrid({
   hasMore,
   loadingMore,
   onFetchMore,
+  sortField: controlledSortField,
+  sortOrder: controlledSortOrder,
+  onSortChange,
 }: FileGridProps) {
   const [viewLayout, setViewLayout] = useState<"grid" | "list">(() => {
     return (localStorage.getItem("fileViewLayout") as "grid" | "list") || "grid";
   });
 
-  // Sorting state
-  const [sortField, setSortField] = useState<"name" | "size" | "type" | "createdAt">("name");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  // Sorting state (support controlled from props, fallback to local state)
+  const [internalSortField, setInternalSortField] = useState<"name" | "size" | "type" | "createdAt">(() => {
+    return (localStorage.getItem("fileSortField") as "name" | "size" | "type" | "createdAt") || "name";
+  });
+  const [internalSortOrder, setInternalSortOrder] = useState<"asc" | "desc">(() => {
+    return (localStorage.getItem("fileSortOrder") as "asc" | "desc") || "asc";
+  });
+
+  const sortField = controlledSortField ?? internalSortField;
+  const sortOrder = controlledSortOrder ?? internalSortOrder;
+
+  const changeSort = (field: "name" | "size" | "type" | "createdAt", order: "asc" | "desc") => {
+    if (onSortChange) {
+      onSortChange(field, order);
+    } else {
+      setInternalSortField(field);
+      setInternalSortOrder(order);
+      localStorage.setItem("fileSortField", field);
+      localStorage.setItem("fileSortOrder", order);
+    }
+  };
 
   const handleLayoutChange = (layout: "grid" | "list") => {
     setViewLayout(layout);
     localStorage.setItem("fileViewLayout", layout);
   };
 
-  // Performa: Gunakan useMemo untuk mengurutkan file secara instan di sisi klien
+  // Performa: Gunakan useMemo untuk mengurutkan file secara instan dan deterministik di sisi klien
   const sortedFiles = useMemo(() => {
     return [...files].sort((a, b) => {
       // 1. Folders selalu berada di urutan paling atas
       if (a.isFolder && !b.isFolder) return -1;
       if (!a.isFolder && b.isFolder) return 1;
 
-      // 2. Sort folders atau files berdasarkan sortField dan sortOrder
+      let comparison = 0;
+
+      // 2. Sort berdasarkan sortField
       if (sortField === "size") {
-        const sizeA = typeof a.size === "number" ? a.size : parseFloat(a.size) || 0;
-        const sizeB = typeof b.size === "number" ? b.size : parseFloat(b.size) || 0;
-        return sortOrder === "asc" ? sizeA - sizeB : sizeB - sizeA;
+        if (!a.isFolder && !b.isFolder) {
+          const sizeA = typeof a.size === "number" ? a.size : parseFloat(a.size) || 0;
+          const sizeB = typeof b.size === "number" ? b.size : parseFloat(b.size) || 0;
+          comparison = sortOrder === "asc" ? sizeA - sizeB : sizeB - sizeA;
+        }
+      } else if (sortField === "createdAt") {
+        // Pada halaman Trash, gunakan deletedAt jika tersedia agar sesuai dengan kolom Date Deleted
+        const rawDateA = isTrash && a.deletedAt ? a.deletedAt : a.createdAt;
+        const rawDateB = isTrash && b.deletedAt ? b.deletedAt : b.createdAt;
+        const dateA = rawDateA ? new Date(rawDateA).getTime() : 0;
+        const dateB = rawDateB ? new Date(rawDateB).getTime() : 0;
+        const validDateA = isNaN(dateA) ? 0 : dateA;
+        const validDateB = isNaN(dateB) ? 0 : dateB;
+        comparison = sortOrder === "asc" ? validDateA - validDateB : validDateB - validDateA;
+      } else if (sortField === "type") {
+        const getExtOrType = (item: FileItem) => {
+          if (item.isFolder) return "folder";
+          const ext = item.name && item.name.includes(".") ? item.name.split(".").pop()?.toLowerCase() : "";
+          if (ext) return ext;
+          return (item.type || "").toLowerCase();
+        };
+        const typeA = getExtOrType(a);
+        const typeB = getExtOrType(b);
+        comparison = sortOrder === "asc" ? typeA.localeCompare(typeB) : typeB.localeCompare(typeA);
+      } else {
+        // Default: Sort by name secara natural numeric
+        const nameA = a.name || "";
+        const nameB = b.name || "";
+        comparison = sortOrder === "asc"
+          ? nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: "base" })
+          : nameB.localeCompare(nameA, undefined, { numeric: true, sensitivity: "base" });
       }
 
-      if (sortField === "createdAt") {
-        const dateA = new Date(a.createdAt).getTime();
-        const dateB = new Date(b.createdAt).getTime();
-        return sortOrder === "asc" ? dateA - dateB : dateB - dateA;
+      // 3. Secondary Tie-breaker: jika perbandingan bernilai 0 (misal ukuran sama / sesama folder), selalu urutkan alfabetis nama
+      if (comparison === 0) {
+        const nameA = a.name || "";
+        const nameB = b.name || "";
+        return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: "base" });
       }
 
-      if (sortField === "type") {
-        const typeA = a.isFolder ? "folder" : (a.type || "").toLowerCase();
-        const typeB = b.isFolder ? "folder" : (b.type || "").toLowerCase();
-        if (typeA < typeB) return sortOrder === "asc" ? -1 : 1;
-        if (typeA > typeB) return sortOrder === "asc" ? 1 : -1;
-        return 0;
-      }
-
-      // Default sorting by name
-      const nameA = (a.name || "").toLowerCase();
-      const nameB = (b.name || "").toLowerCase();
-      if (nameA < nameB) return sortOrder === "asc" ? -1 : 1;
-      if (nameA > nameB) return sortOrder === "asc" ? 1 : -1;
-      return 0;
+      return comparison;
     });
-  }, [files, sortField, sortOrder]);
+  }, [files, sortField, sortOrder, isTrash]);
 
   const handleHeaderClick = (field: "name" | "size" | "type" | "createdAt") => {
     if (sortField === field) {
-      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+      changeSort(field, sortOrder === "asc" ? "desc" : "asc");
     } else {
-      setSortField(field);
-      setSortOrder("asc");
+      // Default order: Date & Size dimulai dari yang terbesar/terbaru (desc), Name & Type dari A-Z (asc)
+      const defaultOrder = field === "createdAt" || field === "size" ? "desc" : "asc";
+      changeSort(field, defaultOrder);
     }
   };
 
@@ -175,8 +219,7 @@ export function FileGrid({
                   "name" | "size" | "type" | "createdAt",
                   "asc" | "desc"
                 ];
-                setSortField(field);
-                setSortOrder(order);
+                changeSort(field, order);
               }}
               className="w-full sm:w-auto px-3 py-1.5 bg-card border border-border rounded-xl text-xs font-semibold text-foreground hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer shadow-sm appearance-none pr-8 relative bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:8px_8px] bg-[position:right_12px_center] bg-no-repeat dark:bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')]"
             >

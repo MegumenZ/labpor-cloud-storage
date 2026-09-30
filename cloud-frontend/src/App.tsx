@@ -85,6 +85,9 @@ export default function App({ auth }: { auth: any }) {
     cancelUpload,
     storageErrorConfig,
     setStorageErrorConfig,
+    sortField,
+    sortOrder,
+    handleSortChange,
   } = useFiles(
     isAuthenticated,
     isStorageOnline,
@@ -272,6 +275,9 @@ export default function App({ auth }: { auth: any }) {
               onToggleFavorite={handleToggleFavorite}
               currentUser={currentUser}
               onToggleLock={handleToggleLock}
+              sortField={sortField}
+              sortOrder={sortOrder}
+              onSortChange={handleSortChange}
             />
           </div>
         )}

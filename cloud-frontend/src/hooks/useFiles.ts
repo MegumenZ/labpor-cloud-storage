@@ -87,6 +87,21 @@ export function useFiles(
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
+  // Sorting state & persistence
+  const [sortField, setSortField] = useState<"name" | "size" | "type" | "createdAt">(() => {
+    return (localStorage.getItem("fileSortField") as "name" | "size" | "type" | "createdAt") || "name";
+  });
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">(() => {
+    return (localStorage.getItem("fileSortOrder") as "asc" | "desc") || "asc";
+  });
+
+  const handleSortChange = useCallback((field: "name" | "size" | "type" | "createdAt", order: "asc" | "desc") => {
+    setSortField(field);
+    setSortOrder(order);
+    localStorage.setItem("fileSortField", field);
+    localStorage.setItem("fileSortOrder", order);
+  }, []);
+
   const fetchAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -109,7 +124,12 @@ export function useFiles(
 
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: "1", limit: "50" };
+      const params: Record<string, string> = { 
+        page: "1", 
+        limit: "50",
+        sortBy: sortField,
+        order: sortOrder,
+      };
       if (viewMode === "trash") {
         params.trash = "true";
       } else if (viewMode === "favorites") {
@@ -140,14 +160,19 @@ export function useFiles(
         setLoading(false);
       }
     }
-  }, [isAuthenticated, currentFolderId, searchQuery, viewMode]);
+  }, [isAuthenticated, currentFolderId, searchQuery, viewMode, sortField, sortOrder]);
 
   const fetchMoreFiles = useCallback(async () => {
     if (!isAuthenticated || !hasMore || loadingMore || loading) return;
     setLoadingMore(true);
     const nextPage = page + 1;
     try {
-      const params: Record<string, string> = { page: String(nextPage), limit: "50" };
+      const params: Record<string, string> = { 
+        page: String(nextPage), 
+        limit: "50",
+        sortBy: sortField,
+        order: sortOrder,
+      };
       if (viewMode === "trash") {
         params.trash = "true";
       } else if (viewMode === "favorites") {
@@ -178,7 +203,7 @@ export function useFiles(
     } finally {
       setLoadingMore(false);
     }
-  }, [isAuthenticated, hasMore, loadingMore, loading, page, viewMode, searchQuery, currentFolderId]);
+  }, [isAuthenticated, hasMore, loadingMore, loading, page, viewMode, searchQuery, currentFolderId, sortField, sortOrder]);
 
   useEffect(() => {
     setSearchQuery("");
@@ -741,6 +766,11 @@ function safeUUID(): string {
     folderStack,
     searchQuery,
     viewMode,
+
+    // Sorting state & handler
+    sortField,
+    sortOrder,
+    handleSortChange,
 
     // Selection state
     selectedIds,

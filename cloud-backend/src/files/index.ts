@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { db, files, users, userFavorites } from "../db";
-import { eq, and, isNull, ilike, inArray, desc, sql } from "drizzle-orm";
+import { eq, and, isNull, ilike, inArray, desc, asc, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { authPlugin, requireAuth } from "../auth/middleware";
 import { s3, BUCKET_NAME } from "./s3";
@@ -60,6 +60,23 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         const uploader = alias(users, "uploader");
         const deleter = alias(users, "deleter");
 
+        const sortBy = String(query.sortBy || query.sort || "createdAt");
+        const order = String(query.order || (sortBy === "createdAt" ? "desc" : "asc")).toLowerCase();
+        const isAsc = order === "asc";
+
+        let primaryOrderClause;
+        if (sortBy === "name") {
+            primaryOrderClause = isAsc ? asc(files.name) : desc(files.name);
+        } else if (sortBy === "size") {
+            primaryOrderClause = isAsc ? asc(files.size) : desc(files.size);
+        } else if (sortBy === "type") {
+            primaryOrderClause = isAsc ? asc(files.type) : desc(files.type);
+        } else if (sortBy === "deletedAt" || (isTrash && sortBy === "createdAt")) {
+            primaryOrderClause = isAsc ? asc(files.deletedAt) : desc(files.deletedAt);
+        } else {
+            primaryOrderClause = isAsc ? asc(files.createdAt) : desc(files.createdAt);
+        }
+
         let queryBuilder = db.select({
             id: files.id,
             userId: files.userId,
@@ -85,7 +102,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         .leftJoin(deleter, eq(files.deletedBy, deleter.id))
         .leftJoin(userFavorites, and(eq(files.id, userFavorites.fileId), eq(userFavorites.userId, user.id)))
         .where(and(...conditions))
-        .orderBy(desc(files.isFolder), desc(files.createdAt))
+        .orderBy(desc(files.isFolder), primaryOrderClause, isAsc ? asc(files.name) : desc(files.name))
         .limit(limit + 1)
         .offset(offset) as any;
 
