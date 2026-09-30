@@ -144,6 +144,41 @@ Jika Anda sedang mengembangkan atau menguji fitur Fluent Bit dan OpenSearch di k
   bun run db:reset-files
   ```
 
+### 6.4. Backend Bun Mengalami Crash OOM (Out of Memory) Saat Mengunggah Berkas Besar
+* **Masalah**: Backend Bun mengalami crash mendadak (browser menampilkan error `net::ERR_CONNECTION_TIMED_OUT` atau `ERR_CONNECTION_REFUSED`) saat pengguna mengunggah berkas multimedia berukuran besar (misalnya video giga-byte). Log kernel di VM menunjukkan pesan: *Out of memory: Killed process (bun)*.
+* **Penyebab**: Bun/Elysia memproses unggahan multipart dengan mem-buffer berkas ke dalam RAM. Saat RAM fisik VM terbatas, gabungan memori dasar (Ceph, PostgreSQL, OpenSearch) dan lonjakan unggahan Bun melebihi batas fisik sehingga memicu OOM Killer sistem operasi Linux.
+* **Solusi (Dengan Optimalisasi Usia SSD)**:
+    Membuat swapfile berukuran **8 GB** di VM1 sebagai memori virtual cadangan di dalam disk. Untuk meminimalkan degradasi umur SSD akibat aktivitas tulis-baca swap, turunkan parameter kernel **`swappiness`** menjadi **`10`**. Hal ini memastikan Linux hanya menulis ke SSD ketika RAM fisik benar-benar telah terpakai hingga 90% (hanya saat mengunggah berkas besar).
+    
+    Jalankan perintah berikut di terminal VM1 (`ceph-admin`):
+    ```bash
+    # 1. Matikan swap lama (jika ada)
+    sudo swapoff -a
+
+    # 2. Alokasikan berkas swap berukuran 8 GB
+    sudo fallocate -l 8G /swapfile
+
+    # 3. Batasi hak akses berkas demi keamanan
+    sudo chmod 600 /swapfile
+
+    # 4. Format berkas menjadi swap area
+    sudo mkswap /swapfile
+
+    # 5. Aktifkan swap
+    sudo swapon /swapfile
+
+    # 6. Daftarkan ke /etc/fstab agar permanen saat VM booting
+    echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+    # 7. Konfigurasi swappiness agar rendah guna melindungi SSD
+    sudo sysctl vm.swappiness=10
+    echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf
+    ```
+    Setelah itu, restart kembali layanan backend:
+    ```bash
+    sudo systemctl restart cloud-backend
+    ```
+
 ---
 
 ## 7. Panduan Deployment Ke VM Dari Terminal Lokal
