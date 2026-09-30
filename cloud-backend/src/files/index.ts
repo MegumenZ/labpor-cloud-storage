@@ -5,12 +5,14 @@ import { alias } from "drizzle-orm/pg-core";
 import { authPlugin, requireAuth } from "../auth/middleware";
 import { s3, BUCKET_NAME } from "./s3";
 import { Upload } from "@aws-sdk/lib-storage";
-import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { writeLog } from "../utils/logger";
 import { getPresignedUrls, getAllDescendants, deletePhysicalFile, fixHttpsUrl } from "../utils/ceph";
 import { invalidateStorageCache } from "../utils/shared-queries";
-import { Readable } from "stream";
+import { Readable, Transform } from "stream";
+import { finalizeUploadReservation, insertFileWithinQuota, releaseUploadReservation, reserveUploadSpace } from "../utils/storage-quota";
+import { assertUploadSizeMatches, MAX_UPLOAD_BYTES, parseUploadSize, StorageQuotaExceededError, UploadSizeMismatchError, UploadTooLargeError, InvalidUploadSizeError } from "../utils/storage-quota-policy";
 
 const BANNED_EXTENSIONS = [
     "html", "htm", "js", "ts", "php", "phtml", "php3", "php4", "php5", "phps",
@@ -21,6 +23,42 @@ function getReqHostAndProto(c: any) {
     const requestHost = c.request?.headers?.get("host") || undefined;
     const requestProto = c.request?.headers?.get("x-forwarded-proto") || (c.request?.url ? new URL(c.request.url).protocol.replace(":", "") : undefined);
     return { requestHost, requestProto };
+}
+
+async function cleanupUncommittedUpload(options: {
+    storagePath: string;
+    userId: string;
+    reservationId: string | null;
+    objectUploaded: boolean;
+    metadataSaved: boolean;
+}): Promise<void> {
+    const { storagePath, userId, reservationId, objectUploaded, metadataSaved } = options;
+    let safeToReleaseReservation = !objectUploaded || metadataSaved;
+
+    if (objectUploaded && !metadataSaved) {
+        try {
+            await s3.send(new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: storagePath }));
+            safeToReleaseReservation = true;
+        } catch (cleanupError: any) {
+            // Keep the reservation until expiry if the orphaned object could not be removed.
+            try {
+                await writeLog("ERROR", "CEPH", "Failed to clean up uncommitted object: " + storagePath, {
+                    userId,
+                    errorStack: cleanupError?.stack,
+                });
+            } catch {
+                console.error("Failed to log uncommitted object cleanup error:", cleanupError);
+            }
+        }
+    }
+
+    if (reservationId && safeToReleaseReservation) {
+        try {
+            await releaseUploadReservation(reservationId);
+        } catch (releaseError) {
+            console.error("Failed to release storage quota reservation:", releaseError);
+        }
+    }
 }
 
 export const filesRoutes = new Elysia({ prefix: "/files" })
@@ -306,22 +344,59 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                 return { message: "File type is not allowed for security reasons" };
             }
 
-            if (decodedFileName.includes("..") || decodedFileName.includes("/") || decodedFileName.includes("\\")) {
+            if (decodedFileName.includes("..") || decodedFileName.includes("/") || decodedFileName.includes(String.fromCharCode(92))) {
                 set.status = 400;
                 return { message: "Invalid file name" };
             }
 
-            const safeFileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
-            const storagePath = `${user.id}/${safeFileName}`;
+            const declaredSize = parseUploadSize(
+                request.headers.get("x-file-size") ?? request.headers.get("content-length"),
+            );
 
             if (!request.body) {
                 set.status = 400;
                 return { message: "Request body cannot be empty" };
             }
 
+            const safeFileName = Date.now() + "-" + crypto.randomUUID() + "." + extension;
+            const storagePath = user.id + "/" + safeFileName;
+            let reservationId: string | null = null;
+            let objectUploaded = false;
+            let metadataSaved = false;
+            let uploadValidationError: Error | null = null;
+            let totalUploadedBytes = 0;
+
             try {
+                const activeReservationId = await reserveUploadSpace(user.id, storagePath, declaredSize);
+                reservationId = activeReservationId;
+
                 const uploadStart = Date.now();
-                const nodeStream = Readable.fromWeb(request.body as any);
+                const sizeGuard = new Transform({
+                    transform(chunk: any, encoding: string, callback: (error?: Error | null, data?: any) => void) {
+                        const chunkBytes = typeof chunk === "string"
+                            ? Buffer.byteLength(chunk)
+                            : (chunk as Uint8Array).byteLength;
+                        totalUploadedBytes += chunkBytes;
+
+                        if (totalUploadedBytes > declaredSize) {
+                            uploadValidationError = new UploadSizeMismatchError(declaredSize, totalUploadedBytes);
+                            callback(uploadValidationError);
+                            return;
+                        }
+
+                        callback(null, chunk);
+                    },
+                    flush(callback: (error?: Error | null) => void) {
+                        try {
+                            assertUploadSizeMatches(declaredSize, totalUploadedBytes);
+                            callback();
+                        } catch (error) {
+                            uploadValidationError = error as Error;
+                            callback(uploadValidationError);
+                        }
+                    },
+                });
+                const nodeStream = Readable.fromWeb(request.body as any).pipe(sizeGuard);
 
                 const upload = new Upload({
                     client: s3,
@@ -336,17 +411,11 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                     leavePartsOnError: false,
                 });
 
-                let totalUploadedBytes = 0;
-                upload.on("httpUploadProgress", (progress) => {
-                    if (progress.loaded) {
-                        totalUploadedBytes = progress.loaded;
-                    }
-                });
-
                 await upload.done();
+                objectUploaded = true;
 
                 const uploadDuration = Date.now() - uploadStart;
-                await writeLog("INFO", "CEPH", `Successfully zero-RAM streamed file to Ceph S3: ${storagePath}`, {
+                await writeLog("INFO", "CEPH", "Successfully zero-RAM streamed file to Ceph S3: " + storagePath, {
                     userId: user.id,
                     elapsedMs: uploadDuration,
                     metadata: {
@@ -357,7 +426,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                     }
                 });
 
-                const [newFile] = await db.insert(files).values({
+                const newFile = await finalizeUploadReservation(activeReservationId, {
                     name: decodedFileName,
                     type: fileType,
                     size: totalUploadedBytes,
@@ -365,7 +434,9 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                     userId: user.id,
                     isFolder: false,
                     storagePath,
-                }).returning();
+                });
+                reservationId = null;
+                metadataSaved = true;
 
                 invalidateStorageCache();
 
@@ -385,7 +456,25 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                     }
                 };
             } catch (err: any) {
-                await writeLog("ERROR", "CEPH", `Failed zero-RAM streaming upload to S3: ${err.message}`, {
+                await cleanupUncommittedUpload({
+                    storagePath,
+                    userId: user.id,
+                    reservationId,
+                    objectUploaded,
+                    metadataSaved,
+                });
+
+                if (uploadValidationError) throw uploadValidationError;
+                if (
+                    err instanceof StorageQuotaExceededError ||
+                    err instanceof UploadTooLargeError ||
+                    err instanceof InvalidUploadSizeError ||
+                    err instanceof UploadSizeMismatchError
+                ) {
+                    throw err;
+                }
+
+                await writeLog("ERROR", "CEPH", "Failed zero-RAM streaming upload to S3: " + err.message, {
                     userId: user.id,
                     errorStack: err.stack
                 });
@@ -399,7 +488,7 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
         async (c) => {
             const user = await requireAuth(c);
             const { body, set } = c;
-            const { name, type, size, parentId } = (body || {}) as { name: string; type: string; size: number; parentId?: string };
+            const { name, type, size, parentId } = (body || {}) as { name: string; type: string; size: number; parentId?: string | null };
 
             if (!name) {
                 set.status = 400;
@@ -412,32 +501,45 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                 return { message: "File type is not allowed for security reasons" };
             }
 
-            if (name.includes("..") || name.includes("/") || name.includes("\\")) {
+            if (name.includes("..") || name.includes("/") || name.includes(String.fromCharCode(92))) {
                 set.status = 400;
                 return { message: "Invalid file name" };
             }
 
-            const safeFileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
-            const storagePath = `${user.id}/${safeFileName}`;
+            if (!Number.isSafeInteger(size) || size < 0) {
+                set.status = 400;
+                return { message: "A valid non-negative integer file size is required" };
+            }
+            if (size > MAX_UPLOAD_BYTES) {
+                set.status = 413;
+                return { message: "File size exceeds the maximum allowed upload size" };
+            }
+
+            const safeFileName = Date.now() + "-" + crypto.randomUUID() + "." + extension;
+            const storagePath = user.id + "/" + safeFileName;
 
             const putCmd = new PutObjectCommand({
                 Bucket: BUCKET_NAME,
                 Key: storagePath,
                 ContentType: type || "application/octet-stream",
+                ContentLength: size,
             });
 
-            const rawUploadUrl = await getSignedUrl(s3, putCmd, { expiresIn: 86400 });
+            const rawUploadUrl = await getSignedUrl(s3, putCmd, {
+                expiresIn: 86400,
+                signableHeaders: new Set(["content-length"]),
+            });
             const uploadUrl = fixHttpsUrl(rawUploadUrl);
 
-            const [newFile] = await db.insert(files).values({
+            const newFile = await insertFileWithinQuota({
                 name,
                 type: type || "application/octet-stream",
-                size: size || 0,
+                size,
                 parentId: parentId || null,
                 userId: user.id,
                 isFolder: false,
                 storagePath,
-            }).returning();
+            });
 
             invalidateStorageCache();
 
@@ -475,32 +577,36 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                 return { message: "No file provided" };
             }
 
-            // 1️⃣ VALIDASI EKSTENSI FILE BERBAHAYA (Stored XSS & RCE)
             const extension = uploadedFile.name.split(".").pop()?.toLowerCase();
             if (!extension || BANNED_EXTENSIONS.includes(extension)) {
                 set.status = 400;
                 return { message: "File type is not allowed for security reasons" };
             }
 
-            // 2️⃣ VALIDASI UKURAN
-            const MAX_SIZE = 500 * 1024 * 1024 * 1024; // 500GB
-            if (uploadedFile.size > MAX_SIZE) {
-                set.status = 400;
-                return { message: "File size exceeds 500GB" };
-            }
-
-            // 3️⃣ VALIDASI NAMA FILE
-            if (!uploadedFile.name || uploadedFile.name.includes("..") || uploadedFile.name.includes("/") || uploadedFile.name.includes("\\")) {
+            if (!uploadedFile.name || uploadedFile.name.includes("..") || uploadedFile.name.includes("/") || uploadedFile.name.includes(String.fromCharCode(92))) {
                 set.status = 400;
                 return { message: "Invalid file name" };
             }
 
-            // 4️⃣ AMANKAN PATH (PER USER)
-            const safeFileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
-            const storagePath = `${user.id}/${safeFileName}`;
+            if (!Number.isSafeInteger(uploadedFile.size) || uploadedFile.size < 0) {
+                set.status = 400;
+                return { message: "A valid non-negative integer file size is required" };
+            }
+            if (uploadedFile.size > MAX_UPLOAD_BYTES) {
+                set.status = 413;
+                return { message: "File size exceeds the maximum allowed upload size" };
+            }
 
-            // 5️⃣ SIMPAN FILE KE CEPH S3 VIA C++ NATIVE STREAM
+            const safeFileName = Date.now() + "-" + crypto.randomUUID() + "." + extension;
+            const storagePath = user.id + "/" + safeFileName;
+            let reservationId: string | null = null;
+            let objectUploaded = false;
+            let metadataSaved = false;
+
             try {
+                const activeReservationId = await reserveUploadSpace(user.id, storagePath, uploadedFile.size);
+                reservationId = activeReservationId;
+
                 const uploadStart = Date.now();
                 const webStream = uploadedFile.stream();
                 const nodeStream = Readable.fromWeb(webStream as any);
@@ -519,9 +625,10 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                 });
 
                 await upload.done();
-                
+                objectUploaded = true;
+
                 const uploadDuration = Date.now() - uploadStart;
-                await writeLog("INFO", "CEPH", `Successfully uploaded file to Ceph S3: ${storagePath}`, {
+                await writeLog("INFO", "CEPH", "Successfully uploaded file to Ceph S3: " + storagePath, {
                     userId: user.id,
                     elapsedMs: uploadDuration,
                     metadata: {
@@ -531,43 +638,61 @@ export const filesRoutes = new Elysia({ prefix: "/files" })
                         contentType: uploadedFile.type
                     }
                 });
+
+                const newFile = await finalizeUploadReservation(activeReservationId, {
+                    name: uploadedFile.name,
+                    type: uploadedFile.type || "application/octet-stream",
+                    size: uploadedFile.size,
+                    parentId: parentId || null,
+                    userId: user.id,
+                    isFolder: false,
+                    storagePath,
+                });
+                reservationId = null;
+                metadataSaved = true;
+
+                invalidateStorageCache();
+
+                const [dbUser] = await db.select({ displayName: users.displayName })
+                    .from(users)
+                    .where(eq(users.id, user.id))
+                    .limit(1);
+
+                const { requestHost, requestProto } = getReqHostAndProto(c);
+                const urls = await getPresignedUrls(newFile.storagePath, newFile.type, newFile.name, requestHost, requestProto);
+                return {
+                    data: {
+                        ...newFile,
+                        ...urls,
+                        uploaderUsername: user.username,
+                        uploaderName: dbUser?.displayName || user.username
+                    }
+                };
             } catch (err: any) {
-                await writeLog("ERROR", "CEPH", `Failed to upload file to Ceph S3 ${storagePath}: ${err.message}`, {
+                await cleanupUncommittedUpload({
+                    storagePath,
+                    userId: user.id,
+                    reservationId,
+                    objectUploaded,
+                    metadataSaved,
+                });
+
+                if (
+                    err instanceof StorageQuotaExceededError ||
+                    err instanceof UploadTooLargeError ||
+                    err instanceof InvalidUploadSizeError ||
+                    err instanceof UploadSizeMismatchError
+                ) {
+                    throw err;
+                }
+
+                await writeLog("ERROR", "CEPH", "Failed to upload file to Ceph S3 " + storagePath + ": " + err.message, {
                     userId: user.id,
                     errorStack: err.stack
                 });
                 set.status = 500;
                 return { message: "Failed to save file to cloud storage" };
             }
-
-            // 6️⃣ SIMPAN KE DATABASE
-            const [newFile] = await db.insert(files).values({
-                name: uploadedFile.name,
-                type: uploadedFile.type || "application/octet-stream",
-                size: uploadedFile.size,
-                parentId: parentId || null,
-                userId: user.id,
-                isFolder: false,
-                storagePath,
-            }).returning();
-
-            invalidateStorageCache();
-
-            const [dbUser] = await db.select({ displayName: users.displayName })
-                .from(users)
-                .where(eq(users.id, user.id))
-                .limit(1);
-
-            const { requestHost, requestProto } = getReqHostAndProto(c);
-            const urls = await getPresignedUrls(newFile.storagePath, newFile.type, newFile.name, requestHost, requestProto);
-            return {
-                data: {
-                    ...newFile,
-                    ...urls,
-                    uploaderUsername: user.username,
-                    uploaderName: dbUser?.displayName || user.username
-                }
-            };
         }
     )
     .post(

@@ -11,6 +11,7 @@ import { mkdir } from "fs/promises";
 import { autoDeleteTrash } from "./cron/autoDeleteTrash";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { s3, BUCKET_NAME } from "./files/s3";
+import { InvalidUploadSizeError, StorageQuotaExceededError, UploadSizeMismatchError, UploadTooLargeError } from "./utils/storage-quota-policy";
 
 import { normalize, join } from "path";
 
@@ -43,6 +44,7 @@ const app = new Elysia({
             return false;
         },
         credentials: true,
+        allowedHeaders: ["Accept", "Content-Type", "Authorization", "X-File-Name", "X-File-Size", "X-Parent-Id"],
     }))
     .use(authPlugin)
     .derive((c) => {
@@ -145,6 +147,34 @@ const app = new Elysia({
             return { message: errorMsg, errors: (error as any).all };
         }
         
+        if (error instanceof StorageQuotaExceededError) {
+            set.status = 413;
+            return {
+                code: "STORAGE_QUOTA_EXCEEDED",
+                message: "Storage quota exceeded",
+                limitBytes: error.limitBytes,
+                availableBytes: error.availableBytes,
+                requestedBytes: error.requestedBytes,
+            };
+        }
+
+        if (error instanceof UploadTooLargeError) {
+            set.status = 413;
+            return {
+                code: "UPLOAD_TOO_LARGE",
+                message: "File size exceeds the maximum allowed upload size.",
+                maxBytes: error.maxBytes,
+            };
+        }
+
+        if (error instanceof InvalidUploadSizeError || error instanceof UploadSizeMismatchError) {
+            set.status = 400;
+            return {
+                code: "INVALID_UPLOAD_SIZE",
+                message: error.message,
+            };
+        }
+
         if (error?.name === "AuthenticationError" || error instanceof AuthenticationError) {
             await writeLog("WARN", "AUTH", `Authentication failed: ${errorMsg}`, { ip });
             set.status = 401;

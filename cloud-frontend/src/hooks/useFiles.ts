@@ -280,6 +280,7 @@ function safeUUID(): string {
         headers: {
           "Content-Type": file.type || "application/octet-stream",
           "X-File-Name": encodeURIComponent(file.name),
+          "X-File-Size": String(file.size),
           "X-Parent-Id": currentFolderId || "",
         },
         withCredentials: true,

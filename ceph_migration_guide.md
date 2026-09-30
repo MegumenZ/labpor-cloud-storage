@@ -286,11 +286,13 @@ sudo apt install -y cephadm
 ### 5.2. Bootstrap Kluster Baru
 Lakukan bootstrap kluster menggunakan IP Tailscale `ceph-admin`. Kita wajib menyertakan flag `--skip-mon-network` karena subnet mask ip Tailscale bernilai `/32` yang secara default akan ditolak oleh sistem pemeriksa jaringan otomatis Ceph:
 ```bash
+read -rsp "Password dashboard Ceph: " CEPH_DASHBOARD_PASSWORD
+echo
 sudo cephadm bootstrap \
   --mon-ip 100.83.191.96 \
   --skip-mon-network \
   --initial-dashboard-user admin \
-  --initial-dashboard-password SandiLabproCeph123!
+  --initial-dashboard-password "$CEPH_DASHBOARD_PASSWORD"
 ```
 
 ### 5.3. Konfigurasi Jaringan Publik Ceph
@@ -505,9 +507,11 @@ echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.conf
 Navigasi ke folder proyek backend, lalu jalankan docker-compose:
 ```bash
 cd /root/cloud-backend
+# Pastikan .env berisi OPENSEARCH_PASSWORD yang kuat dan tidak di-commit.
+sudo chmod 600 .env
 sudo docker-compose -f docker-compose-opensearch.yml up -d
 ```
-*Catatan: OpenSearch akan berjalan secara aman pada port `9200` dengan user `admin` dan password default `admin`.*
+*Catatan: OpenSearch menggunakan user `admin` dan password dari `OPENSEARCH_USER` dan `OPENSEARCH_PASSWORD` pada berkas `.env` di direktori backend. Gunakan nilai yang kuat dan unik; jangan simpan rahasia di repositori.
 
 ### 10.2. Konfigurasi Agen Fluent Bit di VM1
 Fluent Bit akan dipasang langsung pada sistem operasi host VM `ceph-admin`.
@@ -529,6 +533,11 @@ Salin file konfigurasi input-output log yang telah disiapkan di folder proyek ba
 ```bash
 sudo cp /root/cloud-backend/fluent-bit.conf /etc/fluent-bit/fluent-bit.conf
 sudo cp /root/cloud-backend/parsers.conf /etc/fluent-bit/parsers.conf
+
+# Fluent Bit pada paket Ubuntu membaca environment dari /etc/default/fluent-bit.
+# Masukkan kredensial yang sama dengan OPENSEARCH_USER/OPENSEARCH_PASSWORD dari .env.
+sudo install -m 600 /dev/null /etc/default/fluent-bit
+sudoedit /etc/default/fluent-bit
 ```
 
 Pastikan isi berkas `/etc/fluent-bit/fluent-bit.conf` telah terkonfigurasi untuk menangkap log backend dan log Ceph:
@@ -562,8 +571,8 @@ Pastikan isi berkas `/etc/fluent-bit/fluent-bit.conf` telah terkonfigurasi untuk
     match           labpro.app.logs
     host            127.0.0.1
     port            9200
-    http_user       admin
-    http_passwd     admin
+    http_user       ${OPENSEARCH_USER}
+    http_passwd     ${OPENSEARCH_PASSWORD}
     index           labpro-web-logs
     type            _doc
     tls             on
@@ -575,8 +584,8 @@ Pastikan isi berkas `/etc/fluent-bit/fluent-bit.conf` telah terkonfigurasi untuk
     match           labpro.ceph.logs
     host            127.0.0.1
     port            9200
-    http_user       admin
-    http_passwd     admin
+    http_user       ${OPENSEARCH_USER}
+    http_passwd     ${OPENSEARCH_PASSWORD}
     index           labpro-ceph-logs
     type            _doc
     tls             on
@@ -621,7 +630,10 @@ sudo apt install -y postgresql postgresql-contrib
 sudo systemctl enable --now postgresql
 
 # Buat database baru dan pasang password user postgres
-sudo -u postgres psql -c "CREATE USER postgres WITH PASSWORD '123456789';"
+# Atur password role postgres secara interaktif agar tidak tersimpan di shell history.
+sudo -u postgres psql
+# Pada prompt psql, jalankan: \\password postgres
+# Keluar dari psql dengan: \\q
 sudo -u postgres psql -c "CREATE DATABASE skripsi_cloud OWNER postgres;"
 ```
 
@@ -658,20 +670,24 @@ sudo -u postgres psql -c "CREATE DATABASE skripsi_cloud OWNER postgres;"
 3.  Sesuaikan file konfigurasi environment `/root/cloud-backend/.env` di VM:
     ```properties
     NODE_ENV="production"
-    DATABASE_URL="postgres://postgres:123456789@127.0.0.1:5432/skripsi_cloud"
-    JWT_SECRET="rahasia_jwt_sangat_panjang_dan_aman_labpro"
+    DATABASE_URL="postgres://postgres:REPLACE_WITH_DATABASE_PASSWORD@127.0.0.1:5432/skripsi_cloud"
+    JWT_SECRET="REPLACE_WITH_UNIQUE_RANDOM_SECRET_GENERATED_BY_OPENSSL"
     FRONTEND_URL="https://100.83.191.96"
     PORT=3001
     
     # Kredensial RGW S3
     S3_ENDPOINT="http://127.0.0.1:8000"
-    S3_ACCESS_KEY_ID="ISI_DENGAN_ACCESS_KEY_LANGKAH_9.1"
-    S3_SECRET_ACCESS_KEY="ISI_DENGAN_SECRET_KEY_LANGKAH_9.1"
+    S3_ACCESS_KEY_ID="REPLACE_WITH_CEPH_ACCESS_KEY"
+    S3_SECRET_ACCESS_KEY="REPLACE_WITH_CEPH_SECRET_KEY"
     S3_BUCKET_NAME="labpro-storage"
     S3_REGION="us-east-1"
     
     # Metrik Ceph
     CEPH_PROM_URL="http://127.0.0.1:9283/metrics"
+
+# OpenSearch (also consumed by docker-compose-opensearch.yml)
+OPENSEARCH_USER="admin"
+OPENSEARCH_PASSWORD="REPLACE_WITH_STRONG_UNIQUE_OPENSEARCH_PASSWORD"
     ```
 4.  Buat berkas unit systemd `/etc/systemd/system/cloud-backend.service` agar backend otomatis menyala saat server reboot:
     ```ini

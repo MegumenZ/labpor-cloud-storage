@@ -83,14 +83,28 @@ export const userFavorites = pgTable("user_favorites", {
   };
 });
 
-// --- 3. TABEL RATE LIMITS (Persisten & Bebas Biaya) ---
+// --- 3. RESERVASI KUOTA UPLOAD (Mencegah Oversubscription) ---
+export const uploadReservations = pgTable("upload_reservations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull(),
+  storagePath: text("storage_path").notNull().unique(),
+  reservedBytes: bigint("reserved_bytes", { mode: "number" }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (table) => ({
+  expiresAtIdx: index("upload_reservations_expires_at_idx").on(table.expiresAt),
+}));
+
+// --- 4. TABEL RATE LIMITS (Persisten & Bebas Biaya) ---
 export const rateLimits = pgTable("rate_limits", {
   ip: text("ip").primaryKey(),
   count: integer("count").notNull(),
   resetAt: timestamp("reset_at").notNull(),
 });
 
-// --- 4. DEFINISI RELASI (Agar Drizzle pintar saat query) ---
+// --- 5. DEFINISI RELASI (Agar Drizzle pintar saat query) ---
 
 // Satu User punya BANYAK File & BANYAK Favorite
 export const usersRelations = relations(users, ({ many }) => ({

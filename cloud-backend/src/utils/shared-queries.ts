@@ -1,6 +1,7 @@
 import { db, users, files } from "../db";
 import { eq, and, sql } from "drizzle-orm";
-import { getAvatarUrl, getCephCapacity, checkStorageOnline } from "./ceph";
+import { getAvatarUrl, checkStorageOnline } from "./ceph";
+import { getStorageQuotaLimit } from "./storage-quota";
 
 // In-Memory Cache for Universal Storage (60 seconds TTL) to prevent expensive full-table scans
 let cachedUsedStorage: { value: number; timestamp: number } | null = null;
@@ -57,8 +58,7 @@ export async function getUserDashboardData(userId: string) {
 
         const usedStorage = await getSystemUsedStorage();
         const avatarUrl = getAvatarUrl(user.avatar) || user.avatar;
-        const rawLimit = await getCephCapacity().catch(() => 130 * 1024 * 1024 * 1024);
-        const storageLimit = (rawLimit && rawLimit > 0) ? rawLimit : 130 * 1024 * 1024 * 1024;
+        const storageLimit = await getStorageQuotaLimit().catch(() => 130 * 1024 * 1024 * 1024);
         const storageOnline = await checkStorageOnline().catch(() => true);
 
         return {
